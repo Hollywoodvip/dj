@@ -1,0 +1,78 @@
+[
+ {
+  "at": "2026-09-27T16:01:17.039Z",
+  "mode": "guide",
+  "out": {
+   "title": "Don Diablo - 9MM (Extended Mix)",
+   "artist": "Illumi Music",
+   "url": "https://www.youtube.com/watch?v=-CvU47u9iXw&list=PLa1E0oX0lRB9N1s0k6wK3oVI2WYYJu5HQ&index=3",
+   "bpm": 129,
+   "key": "8A"
+  },
+  "in": {
+   "title": "Demo Beat 124",
+   "artist": "Synthesized demo · 48 compases",
+   "url": null,
+   "bpm": 124,
+   "key": "8B"
+  },
+  "plan": {
+   "style": "filter",
+   "pace": "long",
+   "bars": 4,
+   "synced": true,
+   "rate": 1.04,
+   "dropAtEnd": true,
+   "useDrop": false,
+   "bassOnDrop": false,
+   "introLoop": false,
+   "idealOutPos": 208.454,
+   "inStart": 7.737,
+   "reason": "las tonalidades 8A y 3B chocan: el filtro le quita cuerpo al tema que sale y la mezcla es corta"
+  },
+  "startedBarsFromIdeal": null,
+  "levelMinDb": null,
+  "levelMaxDb": null,
+  "warnings": [],
+  "result": "cancelled",
+  "mixSeconds": null
+ },
+ {
+  "at": "2026-09-27T16:01:27.006Z",
+  "mode": "guide",
+  "out": {
+   "title": "Don Diablo - 9MM (Extended Mix)",
+   "artist": "Illumi Music",
+   "url": "https://www.youtube.com/watch?v=-CvU47u9iXw&list=PLa1E0oX0lRB9N1s0k6wK3oVI2WYYJu5HQ&index=3",
+   "bpm": 129,
+   "key": "8A"
+  },
+  "in": {
+   "title": "Rag - Give It Up To Me (When You Gonna) [Extended Mix] | TECH HOUSE",
+   "artist": "Illumi Music",
+   "url": "https://www.youtube.com/watch?v=fj7-kUpRIHs&list=PLa1E0oX0lRB9N1s0k6wK3oVI2WYYJu5HQ&index=5",
+   "bpm": 126,
+   "key": "8A"
+  },
+  "plan": {
+   "style": "blend",
+   "pace": "long",
+   "bars": 4,
+   "synced": true,
+   "rate": 1.024,
+   "dropAtEnd": true,
+   "useDrop": false,
+   "bassOnDrop": true,
+   "introLoop": false,
+   "idealOutPos": 208.454,
+   "inStart": 7.743,
+   "reason": "tempo cercano y tonalidades armónicas (8A → 8A): se pueden fundir largo"
+  },
+  "startedBarsFromIdeal": 58,
+  "levelMinDb": -2.282,
+  "levelMaxDb": 4.954,
+  "warnings": [],
+  "result": "cancelled",
+  "mixSeconds": 34.6
+ }
+]
