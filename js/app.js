@@ -1264,14 +1264,23 @@ function planTransition(live, next, now = false) {
     const barIn = 4 * next.beatSec;
     let inStart = useDrop ? na.introEnd : na.mixIn;
     let dropAtEnd = false;
-    if (!useDrop && introBars >= 2) {
+    let introLoop = null;
+    if (!useDrop && introBars >= 1) {
         const ideal = na.introEnd - bars * barIn;
         if (ideal >= na.mixIn - 0.05) {
             inStart = Math.max(na.mixIn, na.downbeat + Math.round((ideal - na.downbeat) / barIn) * barIn);
             dropAtEnd = true;
         } else {
-            // Intro shorter than the mix: the drop comes in partway through
-            dropAtEnd = introBars >= bars / 2;
+            // Intro shorter than the mix: loop it (2 or 1 bars) so the drop still lands
+            // right at the end — what DJs do with short reggaeton intros. Otherwise the
+            // drop comes in partway through
+            const ib = Math.round(introBars);
+            const extra = bars - ib;
+            const L = [2, 1].find(l => l <= ib && extra % l === 0 && extra / l <= 4);
+            if (style !== 'echo' && L && Math.abs(introBars - ib) < 0.1) {
+                introLoop = { start: na.mixIn, bars: L, beats: 4 * L, releaseAt: extra + 0.25 };
+                dropAtEnd = true;
+            } else dropAtEnd = introBars >= bars / 2;
         }
     }
 
@@ -1309,6 +1318,9 @@ function planTransition(live, next, now = false) {
     // With headphones: listen to the new track before the crowd hears it
     if (typeof Cue !== 'undefined' && Cue.ready() && !Cue.pfl(next)) {
         prep(`Escucha el ${LB} en tus audífonos: prende su CUE 🎧 (solo lo oyes tú). Mantén su botón CUE para oírlo desde donde va a entrar`, [{ type: 'pfl' }]);
+    }
+    if (introLoop && !next.isPlaying) {
+        prep(`La intro del ${LB} es corta (${Math.round(introBars)} comp.): ponle un LOOP ${introLoop.beats} (repite ${introLoop.bars === 1 ? 'su primer compás' : 'sus 2 primeros compases'}). Así su drop cae justo al final de la mezcla`, [{ type: 'inLoop' }]);
     }
     const wantRate = r ? r.rate : 1;
     if (!next.isPlaying && Math.abs(next.pitch - wantRate) > 0.0015) {
@@ -1381,12 +1393,13 @@ function planTransition(live, next, now = false) {
         step(0, `${playText} y pasa el crossfader entero al ${LB}: el eco del ${LA} sigue sonando solo`,
             [{ type: 'startIn' }, set('crossfader', xIn, 0.25)]);
     }
+    if (introLoop) step(introLoop.releaseAt, `Suelta el LOOP del ${LB}: su intro sigue y el drop llega justo al final de la mezcla`, [{ type: 'inLoopOut' }]);
     const endBar = style === 'echo' ? 2 : bars + 0.5;
     step(endBar, `Pausa el Deck ${LA}: ya no se escucha (el crossfader está en el ${LB})`, [{ type: 'pauseOut' }]);
     step(endBar + 0.25, `Listo: el efecto del ${LA} se apaga y sus perillas vuelven a 0`, [{ type: 'end' }]);
 
     return {
-        style, styleLabel: MIX_STYLES[style], reason, bars, target, inStart, useDrop, dropAtEnd, pace,
+        style, styleLabel: MIX_STYLES[style], reason, bars, target, inStart, useDrop, dropAtEnd, pace, introLoop,
         dropBar: useDrop ? 0 : Math.round((na.introEnd - inStart) / barIn), bassOnDrop,
         synced: !!r, rate: r ? r.rate : null, factor: r ? r.factor : 1, steps, xIn, xOut,
     };
@@ -1454,9 +1467,10 @@ function startAutoMix(now = false, mode = 'auto') {
 function cancelAutoMix(message = 'Mezcla cancelada') {
     if (!autoMix) return;
     if (typeof Profe !== 'undefined') Profe.onCancel();
-    const { out } = autoMix;
+    const { out, in: inc, plan } = autoMix;
     autoMix = null;
     if (out.fx && out.fx.on) out.fx.setOn(false);
+    if (plan.introLoop && inc.loop.active) { inc.exitLoop(); refreshDeckButtons(inc); }
     deckList.forEach(d => resetChannel(d, 400));
     setCoachTargets([]);
     toast(message, 'warn');
@@ -1530,6 +1544,26 @@ function fireStep(m, step) {
             if (m.mode === 'auto') go();
             else step.pending.push({ id: `pad-${a.pad}`, label: a.pad === 0 ? 'termina en el drop · clic' : 'suena en el drop · clic', optional: true,
                 until: a.pad === 0 ? a.bar - 1 : a.bar + 0.1, check: () => !!a.done, run: go });
+        } else if (a.type === 'inLoop') {
+            const inc = m.in, L = m.plan.introLoop;
+            const on = () => inc.loop.active && Math.abs(inc.loop.start - L.start) < 0.05;
+            const go = () => { if (!on()) { inc.setLoop(L.start, L.bars * 4 * inc.beatSec, L.beats); refreshDeckButtons(inc); } };
+            if (m.mode === 'auto') go();
+            else step.pending.push({ id: `deck-${inc.key}-loop-${L.beats}`, label: 'LOOP · clic', check: on, run: go });
+        } else if (a.type === 'inLoopOut') {
+            const inc = m.in;
+            const go = () => {
+                if (!inc.loop.active) return;
+                inc.exitLoop();
+                refreshDeckButtons(inc);
+                // Line the plan's clock up with where the drop really is now
+                if (m.started) {
+                    const barsToDrop = (inc.analysis.introEnd - inc.getCurrentTime()) / inc.playbackRate / mixBarSeconds(m);
+                    m.pausedBars = (audioCtx.currentTime - m.startCtx) / mixBarSeconds(m) - (m.plan.bars - barsToDrop);
+                }
+            };
+            if (m.mode === 'auto') go();
+            else step.pending.push({ id: `deck-${inc.key}-loop-${m.plan.introLoop.beats}`, label: 'SOLTAR · clic', check: () => !inc.loop.active, run: go });
         } else if (a.type === 'loop') {
             const out = m.out;
             const go = () => { if (!out.loop.active) stretchLoopBeats(out, a.beats); };
@@ -2231,12 +2265,18 @@ function padTiming(pad, at = null, custom = null) {
     const base = { beatSec: beat / rate, key: live.analysis.key };
     const nextBeat = live.firstBeat + Math.ceil((pos + 0.03 * rate - live.firstBeat) / beat) * beat;
     if (at !== null) return { ...base, t: toCtx(at), len: Sampler.defaultLen(pad, base.beatSec), where: 'en el drop' };
-    if (pad.sync === 'beat' || (custom && pad.sync !== 'end')) {
-        return { ...base, t: toCtx(pad.sync === 'bar' ? live.nextBarAfter(pos + 0.03 * rate) : nextBeat), len: Sampler.defaultLen(pad, base.beatSec), where: pad.sync === 'bar' ? 'en el próximo 1' : 'en el próximo beat' };
-    }
-    if (pad.sync === 'bar') {
-        const t = live.nextBarAfter(pos + 0.03 * rate);
-        return { ...base, t: toCtx(t), len: Sampler.defaultLen(pad, base.beatSec), where: 'en el próximo 1' };
+    if (pad.sync === 'beat' || pad.sync === 'bar' || custom && pad.sync !== 'end') {
+        // Snap to the beat you meant: the nearest one to what you're HEARING right now
+        // (speakers, Bluetooth above all, play a bit later than the audio clock), and to
+        // the "1" if it's that close. Never waits a whole bar: pressing on time sounds on time
+        const heard = pos - audioLatency() * rate;
+        let tb = live.firstBeat + Math.round((heard - live.firstBeat) / beat) * beat;
+        const one = live.downbeat + Math.round((heard - live.downbeat) / bar) * bar;
+        if (pad.sync === 'bar' && Math.abs(one - heard) <= 0.5 * beat) tb = one;
+        // Already rendered (you pressed late): the next beat, still on the grid
+        while (audioCtx.currentTime + (tb - pos) / rate < audioCtx.currentTime - 0.06) tb += beat;
+        const isOne = Math.abs(((tb - live.downbeat) / bar) - Math.round((tb - live.downbeat) / bar)) < 0.01;
+        return { ...base, t: toCtx(tb), len: Sampler.defaultLen(pad, base.beatSec), where: isOne ? 'en el 1' : 'en el beat' };
     }
     // 'end': finish on the next drop or phrase that is far enough away
     const ctx = Profe.context(live);
@@ -2273,11 +2313,19 @@ function triggerPad(i, { at = null, endCtx = null, atCtx = null } = {}) {
     if (typeof Profe !== 'undefined') Profe.onPad(i);
 }
 
+// How late the speakers play what the audio clock renders (Bluetooth: ~0.15–0.3 s)
+function audioLatency() {
+    if (!audioCtx) return 0;
+    return Math.min(0.5, (audioCtx.outputLatency || 0) + (audioCtx.baseLatency || 0));
+}
+
 function showPadHint(i, where = '') {
     const pad = SAMPLER_PADS[i];
     const c = padCustom[i];
+    const lat = audioLatency();
     $('sampler-hint').innerHTML = `<b class="text-amber-300">${pad.label}${c ? ' (tu sonido)' : ''}${where ? ` · ${where}` : ''}:</b> <span></span>`;
-    $('sampler-hint').querySelector('span').textContent = c ? `"${c.name}". Clic derecho vuelve al sonido original.` : pad.when;
+    $('sampler-hint').querySelector('span').textContent = (c ? `"${c.name}". Clic derecho vuelve al sonido original.` : pad.when)
+        + (lat > 0.1 ? ` · Tu salida tiene ${Math.round(lat * 1000)} ms de retraso (Bluetooth): si te suena tarde, aprieta apenas antes del golpe.` : '');
 }
 
 function renderPads() {

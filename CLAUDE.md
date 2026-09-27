@@ -99,6 +99,12 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
   (`optional`, expire via `until`, never hold the plan) pad steps: SUBIDA ending on the
   drop and IMPACTO on it, scheduled on the mix clock. Echo out starts with LOOP 4 on the
   old track (bar-aligned), then ECHO + LOW −26, then PLAY, then the crossfader.
+- **Short intros:** when the incoming intro is shorter than the mix, the plan loops it
+  (`introLoop`, 2 or 1 bars, ≤ 4 repeats) so its drop still lands at the end; releasing
+  it re-syncs the plan clock to the real drop (`inLoopOut`).
+- **Sampler timing:** manual pads snap to the nearest beat of what you HEAR
+  (`audioLatency()`: Bluetooth is late), to the "1" if within half a beat; pressed late →
+  next beat. Never wait a whole bar (the user heard IMPACTO as out of time).
 - **Mix map:** while a mix is armed, `mixMap` draws it on the waveforms (green zone +
   ENTRA / BAJOS / FX / TODO AL / PAUSA on the outgoing deck, ENTRA AQUÍ on the incoming),
   the phrase line counts down to the next mark, and `#xf-plan` shows where the plan
