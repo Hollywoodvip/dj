@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebDJ Pro - Virtual DJ with YouTube Converter Integration</title>
+    <title>WebDJ Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -214,7 +214,7 @@
                 <i class="fa-brands fa-youtube text-red-500 text-2xl"></i>
                 <div>
                     <h2 class="text-xs font-bold text-white tracking-wider">YOUTUBE MP3 CONVERTER & EXTRACTOR</h2>
-                    <p class="text-[10px] text-gray-400">Pastes links, extracts audio & auto-converts to high quality MP3 buffer</p>
+                    <p id="yt-server-status" class="text-[10px] text-gray-400">Paste a link, extract the audio and load it on a deck</p>
                 </div>
             </div>
 
@@ -225,22 +225,22 @@
                     <button id="clear-yt-btn" class="absolute right-2 top-2 text-gray-500 hover:text-white text-xs"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <button id="convert-yt-btn" class="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg text-xs flex items-center gap-2 shadow-lg transition-all whitespace-nowrap">
-                    <i class="fa-solid fa-file-arrow-down"></i> Convert to MP3
+                    <i class="fa-solid fa-file-arrow-down"></i> Extract Audio
                 </button>
             </div>
         </div>
 
         <!-- Quick Select Pre-loaded YouTube Audio Tracks -->
         <div class="mt-3 pt-2 border-t border-gray-800/80 flex flex-wrap items-center gap-2 text-xs">
-            <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest"><i class="fa-solid fa-bolt text-amber-400 mr-1"></i> Quick Test Streams:</span>
-            <button onclick="loadSimulatedTrack('One More Time', 'Daft Punk', 128, 'A')" class="px-2.5 py-1 bg-gray-900 hover:bg-cyan-950 text-cyan-300 border border-cyan-800/50 rounded flex items-center gap-1.5 transition">
-                <i class="fa-brands fa-youtube text-red-500"></i> Daft Punk - One More Time &rarr; <span class="font-bold text-cyan-400">DECK A</span>
+            <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest"><i class="fa-solid fa-bolt text-amber-400 mr-1"></i> Demo Beats (synthesized):</span>
+            <button onclick="loadSimulatedTrack('Demo Beat 128', 'Synthesized demo', 128, 'A')" class="px-2.5 py-1 bg-gray-900 hover:bg-cyan-950 text-cyan-300 border border-cyan-800/50 rounded flex items-center gap-1.5 transition">
+                <i class="fa-solid fa-wave-square text-amber-400"></i> Demo 128 BPM &rarr; <span class="font-bold text-cyan-400">DECK A</span>
             </button>
-            <button onclick="loadSimulatedTrack('Titanium', 'David Guetta ft. Sia', 126, 'B')" class="px-2.5 py-1 bg-gray-900 hover:bg-rose-950 text-rose-300 border border-rose-800/50 rounded flex items-center gap-1.5 transition">
-                <i class="fa-brands fa-youtube text-red-500"></i> David Guetta - Titanium &rarr; <span class="font-bold text-rose-400">DECK B</span>
+            <button onclick="loadSimulatedTrack('Demo Beat 126', 'Synthesized demo', 126, 'B')" class="px-2.5 py-1 bg-gray-900 hover:bg-rose-950 text-rose-300 border border-rose-800/50 rounded flex items-center gap-1.5 transition">
+                <i class="fa-solid fa-wave-square text-amber-400"></i> Demo 126 BPM &rarr; <span class="font-bold text-rose-400">DECK B</span>
             </button>
-            <button onclick="loadSimulatedTrack('Levitating', 'Dua Lipa', 103, 'A')" class="px-2.5 py-1 bg-gray-900 hover:bg-cyan-950 text-cyan-300 border border-cyan-800/50 rounded flex items-center gap-1.5 transition">
-                <i class="fa-brands fa-youtube text-red-500"></i> Dua Lipa - Levitating &rarr; <span class="font-bold text-cyan-400">DECK A</span>
+            <button onclick="loadSimulatedTrack('Demo Beat 103', 'Synthesized demo', 103, 'A')" class="px-2.5 py-1 bg-gray-900 hover:bg-cyan-950 text-cyan-300 border border-cyan-800/50 rounded flex items-center gap-1.5 transition">
+                <i class="fa-solid fa-wave-square text-amber-400"></i> Demo 103 BPM &rarr; <span class="font-bold text-cyan-400">DECK A</span>
             </button>
         </div>
     </section>
@@ -255,8 +255,8 @@
                 <div class="flex justify-between items-start gap-2">
                     <div class="overflow-hidden">
                         <span class="text-xs font-bold text-cyan-400 tracking-wider">DECK A</span>
-                        <h2 id="deck-a-title" class="text-sm font-bold text-white truncate">Daft Punk - One More Time</h2>
-                        <span id="deck-a-artist" class="text-[10px] text-gray-400 block truncate">YouTube MP3 Converted Buffer</span>
+                        <h2 id="deck-a-title" class="text-sm font-bold text-white truncate">No track loaded</h2>
+                        <span id="deck-a-artist" class="text-[10px] text-gray-400 block truncate">Paste a YouTube link or drop a file</span>
                     </div>
                     <div class="text-right">
                         <div id="deck-a-bpm" class="font-digits text-lg font-bold text-cyan-400">128.0</div>
@@ -449,8 +449,8 @@
                 <div class="flex justify-between items-start gap-2">
                     <div class="overflow-hidden">
                         <span class="text-xs font-bold text-rose-400 tracking-wider">DECK B</span>
-                        <h2 id="deck-b-title" class="text-sm font-bold text-white truncate">David Guetta ft. Sia - Titanium</h2>
-                        <span id="deck-b-artist" class="text-[10px] text-gray-400 block truncate">YouTube MP3 Converted Buffer</span>
+                        <h2 id="deck-b-title" class="text-sm font-bold text-white truncate">No track loaded</h2>
+                        <span id="deck-b-artist" class="text-[10px] text-gray-400 block truncate">Paste a YouTube link or drop a file</span>
                     </div>
                     <div class="text-right">
                         <div id="deck-b-bpm" class="font-digits text-lg font-bold text-rose-400">126.0</div>
@@ -555,31 +555,25 @@
     </footer>
 
     <!-- YouTube Conversion Progress Modal -->
-    <div id="converter-modal" class="fixed inset-0 modal-blur z-50 flex items-center justify-center hidden">
+    <div id="converter-modal" class="fixed inset-0 modal-blur z-50 flex items-center justify-center hidden p-4">
         <div class="dj-panel rounded-xl p-6 max-w-md w-full border border-red-500/40 shadow-2xl relative">
+            <button id="modal-close" class="absolute top-3 right-3 text-gray-500 hover:text-white" title="Close"><i class="fa-solid fa-xmark"></i></button>
             <div class="flex items-center gap-3 mb-4 border-b border-gray-800 pb-3">
-                <i class="fa-brands fa-youtube text-red-500 text-3xl animate-bounce"></i>
-                <div>
-                    <h3 class="text-sm font-bold text-white tracking-wider font-digits">YOUTUBE MP3 BACKEND PROCESSOR</h3>
-                    <p class="text-[10px] text-gray-400">Extracting 320kbps Audio & Generating AudioBuffer</p>
+                <i class="fa-brands fa-youtube text-red-500 text-3xl"></i>
+                <div class="overflow-hidden">
+                    <h3 class="text-sm font-bold text-white tracking-wider font-digits">YOUTUBE AUDIO EXTRACTOR</h3>
+                    <p id="modal-track-name" class="text-[10px] text-gray-400 truncate">Extracting audio with yt-dlp</p>
                 </div>
             </div>
 
             <!-- Progress Steps Indicator -->
             <div class="space-y-3 mb-6">
-                <div id="step-1" class="flex items-center gap-3 text-xs text-gray-400">
-                    <i class="fa-solid fa-circle-notch animate-spin text-red-400"></i>
-                    <span>Connecting to YouTube API & Parsing Video Stream...</span>
-                </div>
-                <div id="step-2" class="flex items-center gap-3 text-xs text-gray-600">
-                    <i class="fa-regular fa-circle"></i>
-                    <span>Downloading HQ Audio Track (ytdl-core backend)...</span>
-                </div>
-                <div id="step-3" class="flex items-center gap-3 text-xs text-gray-600">
-                    <i class="fa-regular fa-circle"></i>
-                    <span>Analyzing BPM & Rendering High-Res Waveform...</span>
-                </div>
+                <div id="step-1" class="flex items-center gap-3 text-xs text-gray-400"></div>
+                <div id="step-2" class="flex items-center gap-3 text-xs text-gray-600"></div>
+                <div id="step-3" class="flex items-center gap-3 text-xs text-gray-600"></div>
             </div>
+
+            <div id="modal-error" class="hidden mb-4 p-3 rounded border border-red-700/60 bg-red-950/50 text-xs text-red-300"></div>
 
             <!-- Visual Progress Bar -->
             <div class="h-2 w-full bg-gray-900 rounded-full overflow-hidden mb-6 border border-gray-800">
@@ -594,6 +588,9 @@
                 <button id="modal-send-deck-b" class="py-2 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-500/50 rounded-lg font-bold text-xs flex items-center justify-center gap-2">
                     <i class="fa-solid fa-play"></i> Send to DECK B
                 </button>
+                <a id="modal-download" href="#" class="col-span-2 py-2 bg-gray-900 hover:bg-gray-800 text-amber-300 border border-amber-500/40 rounded-lg font-bold text-xs flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-file-arrow-down"></i> <span id="modal-download-label">Download MP3</span>
+                </a>
             </div>
         </div>
     </div>
@@ -757,8 +754,7 @@
         let masterGainNode = null;
         let crossfaderGainA = null;
         let crossfaderGainB = null;
-        let convertedAudioBuffer = null;
-
+        
         function initAudioEngine() {
             if (audioCtx) return;
 
@@ -794,8 +790,8 @@
             btn.classList.add('from-emerald-500', 'to-teal-600');
             btn.innerHTML = `<i class="fa-solid fa-check"></i> Audio Engine Active`;
 
-            loadSimulatedTrack('One More Time', 'Daft Punk', 128, 'A');
-            loadSimulatedTrack('Titanium', 'David Guetta ft. Sia', 126, 'B');
+            if (!deckA.audioBuffer) loadSimulatedTrack('Demo Beat 128', 'Synthesized demo', 128, 'A');
+            if (!deckB.audioBuffer) loadSimulatedTrack('Demo Beat 126', 'Synthesized demo', 126, 'B');
         }
 
         // Procedural Audio Synthesizer to create realistic playable track buffers
@@ -883,11 +879,45 @@
             drawWaveform(deck);
         }
 
-        function triggerYouTubeConverter() {
-            if (!audioCtx) initAudioEngine();
-            const input = document.getElementById('youtube-url-input');
-            const url = input.value.trim();
+        // Backend (server.py) capabilities, filled by checkServer()
+        const server = { online: false, ffmpeg: false };
+        let convertedTrack = null; // { buffer, title, artist, bpm, url }
 
+        async function checkServer() {
+            const status = document.getElementById('yt-server-status');
+            try {
+                if (location.protocol === 'file:') throw new Error('file');
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                server.online = !!data.ytdlp;
+                server.ffmpeg = !!data.ffmpeg;
+                status.innerText = server.online
+                    ? 'Converter online · paste a link, extract the audio and load it on a deck'
+                    : 'Server running but yt-dlp is missing · run: pip install -r requirements.txt';
+                status.className = `text-[10px] ${server.online ? 'text-emerald-400' : 'text-amber-400'}`;
+            } catch (e) {
+                server.online = false;
+                status.innerText = 'Converter offline · start it with: python server.py  →  open http://localhost:8000';
+                status.className = 'text-[10px] text-amber-400';
+            }
+        }
+
+        function setStep(el, state, text) {
+            const styles = {
+                waiting: ['text-gray-600', 'fa-regular fa-circle'],
+                active: ['text-amber-400 font-bold', 'fa-solid fa-circle-notch animate-spin'],
+                done: ['text-emerald-400', 'fa-solid fa-check'],
+                error: ['text-red-400 font-bold', 'fa-solid fa-triangle-exclamation'],
+            };
+            const [cls, icon] = styles[state];
+            el.className = `flex items-center gap-3 text-xs ${cls}`;
+            el.innerHTML = `<i class="${icon}"></i> <span></span>`;
+            el.querySelector('span').innerText = text;
+        }
+
+        async function triggerYouTubeConverter() {
+            if (!audioCtx) initAudioEngine();
+            const url = document.getElementById('youtube-url-input').value.trim();
             if (!url) {
                 alert("Please paste a valid YouTube URL first!");
                 return;
@@ -899,67 +929,170 @@
             const step3 = document.getElementById('step-3');
             const progressBar = document.getElementById('modal-progress-bar');
             const deckActions = document.getElementById('modal-deck-actions');
+            const errorBox = document.getElementById('modal-error');
+            const trackName = document.getElementById('modal-track-name');
 
-            // Reset Modal View
             modal.classList.remove('hidden');
-            progressBar.style.width = '0%';
+            errorBox.classList.add('hidden');
+            progressBar.style.width = '5%';
             deckActions.classList.add('opacity-50', 'pointer-events-none');
+            trackName.innerText = url;
+            convertedTrack = null;
 
-            step1.className = "flex items-center gap-3 text-xs text-red-400 font-bold";
-            step1.innerHTML = `<i class="fa-solid fa-circle-notch animate-spin"></i> Connecting to YouTube API & Parsing Video Stream...`;
+            setStep(step1, 'active', 'Fetching video & extracting audio on the server...');
+            setStep(step2, 'waiting', 'Transferring audio to the browser...');
+            setStep(step3, 'waiting', 'Decoding, detecting BPM & drawing waveform...');
 
-            step2.className = "flex items-center gap-3 text-xs text-gray-600";
-            step2.innerHTML = `<i class="fa-regular fa-circle"></i> Downloading HQ Audio Track (ytdl-core backend)...`;
+            const fail = (step, message) => {
+                setStep(step, 'error', 'Failed');
+                errorBox.innerText = message;
+                errorBox.classList.remove('hidden');
+                progressBar.style.width = '0%';
+            };
 
-            step3.className = "flex items-center gap-3 text-xs text-gray-600";
-            step3.innerHTML = `<i class="fa-regular fa-circle"></i> Analyzing BPM & Rendering High-Res Waveform...`;
+            await checkServer();
+            if (!server.online) {
+                fail(step1, location.protocol === 'file:'
+                    ? 'The converter needs the local server. In the project folder run "python server.py" and open http://localhost:8000 (not the HTML file directly).'
+                    : 'The converter server is not available. Run "pip install -r requirements.txt" and then "python server.py".');
+                return;
+            }
 
-            // Step 1 -> Step 2
-            setTimeout(() => {
-                progressBar.style.width = '40%';
-                step1.className = "flex items-center gap-3 text-xs text-emerald-400";
-                step1.innerHTML = `<i class="fa-solid fa-check"></i> Stream Parsed Successfully!`;
+            // Step 1: server downloads the audio (the slow part)
+            let res;
+            try {
+                res = await fetch(`/api/convert?url=${encodeURIComponent(url)}`);
+            } catch (e) {
+                fail(step1, 'Could not reach the converter server. Is "python server.py" still running?');
+                return;
+            }
+            if (!res.ok) {
+                let message = `Server error (${res.status})`;
+                try { message = (await res.json()).error || message; } catch (e) {}
+                fail(step1, message);
+                return;
+            }
+            const title = decodeURIComponent(res.headers.get('X-Track-Title') || 'YouTube Track');
+            const artist = decodeURIComponent(res.headers.get('X-Track-Artist') || 'YouTube');
+            trackName.innerText = artist ? `${artist} - ${title}` : title;
+            setStep(step1, 'done', 'Audio extracted!');
+            progressBar.style.width = '40%';
 
-                step2.className = "flex items-center gap-3 text-xs text-amber-400 font-bold";
-                step2.innerHTML = `<i class="fa-solid fa-circle-notch animate-spin"></i> Extracting & Converting Audio to 320kbps MP3 Buffer...`;
-            }, 1200);
+            // Step 2: stream the bytes with real progress
+            setStep(step2, 'active', 'Transferring audio to the browser...');
+            let arrayBuffer;
+            try {
+                const total = parseInt(res.headers.get('Content-Length') || '0', 10);
+                const reader = res.body.getReader();
+                const chunks = [];
+                let received = 0;
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                    received += value.length;
+                    if (total) {
+                        progressBar.style.width = `${40 + (received / total) * 45}%`;
+                        setStep(step2, 'active', `Transferring audio... ${(received / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} MB`);
+                    }
+                }
+                arrayBuffer = await new Blob(chunks).arrayBuffer();
+            } catch (e) {
+                fail(step2, 'The transfer was interrupted. Try again.');
+                return;
+            }
+            setStep(step2, 'done', `Audio received (${(arrayBuffer.byteLength / 1048576).toFixed(1)} MB)`);
+            progressBar.style.width = '85%';
 
-            // Step 2 -> Step 3
-            setTimeout(async () => {
-                progressBar.style.width = '85%';
-                step2.className = "flex items-center gap-3 text-xs text-emerald-400";
-                step2.innerHTML = `<i class="fa-solid fa-check"></i> Audio Extracted & Converted to MP3 Buffer!`;
+            // Step 3: decode + BPM
+            setStep(step3, 'active', 'Decoding, detecting BPM & drawing waveform...');
+            let buffer;
+            try {
+                buffer = await audioCtx.decodeAudioData(arrayBuffer);
+            } catch (e) {
+                fail(step3, 'Your browser could not decode this audio format. Try Chrome or Firefox.');
+                return;
+            }
+            const bpm = await detectBPM(buffer);
+            convertedTrack = { buffer, title, artist, bpm, url };
 
-                step3.className = "flex items-center gap-3 text-xs text-cyan-400 font-bold";
-                step3.innerHTML = `<i class="fa-solid fa-circle-notch animate-spin"></i> Analyzing Track BPM & Waveform Peak Grid...`;
+            setStep(step3, 'done', `Ready! ${formatTime(buffer.duration)} · ${bpm.toFixed(1)} BPM`);
+            progressBar.style.width = '100%';
 
-                // Synthesize custom buffer for converted URL
-                convertedAudioBuffer = await generateProceduralTrackBuffer(128, 'Converted YT Track');
-            }, 2600);
-
-            // Finish Conversion & Ready to Load
-            setTimeout(() => {
-                progressBar.style.width = '100%';
-                step3.className = "flex items-center gap-3 text-xs text-emerald-400 font-bold";
-                step3.innerHTML = `<i class="fa-solid fa-check"></i> Track Converted & Ready for DJ Decks!`;
-
-                deckActions.classList.remove('opacity-50', 'pointer-events-none');
-            }, 3800);
+            const download = document.getElementById('modal-download');
+            download.href = `/api/convert?url=${encodeURIComponent(url)}&download=1${server.ffmpeg ? '&format=mp3' : ''}`;
+            document.getElementById('modal-download-label').innerText = server.ffmpeg ? 'Download MP3 (320 kbps)' : 'Download audio (M4A · install ffmpeg for MP3)';
+            deckActions.classList.remove('opacity-50', 'pointer-events-none');
         }
 
         function sendConvertedToDeck(targetDeck) {
-            if (!convertedAudioBuffer) return;
+            if (!convertedTrack) return;
             const deck = targetDeck === 'A' ? deckA : deckB;
+            const id = targetDeck.toLowerCase();
 
-            deck.resetForNewTrack(convertedAudioBuffer);
-            deck.bpm = 128;
-            document.getElementById(`deck-${targetDeck.toLowerCase()}-bpm`).innerText = deck.bpm.toFixed(1);
+            deck.resetForNewTrack(convertedTrack.buffer);
+            deck.bpm = convertedTrack.bpm;
 
-            document.getElementById(`deck-${targetDeck.toLowerCase()}-title`).innerText = "YouTube Converted Track";
-            document.getElementById(`deck-${targetDeck.toLowerCase()}-artist`).innerText = "Downloaded via Backend MP3 Stream";
+            document.getElementById(`deck-${id}-title`).innerText = convertedTrack.title;
+            document.getElementById(`deck-${id}-artist`).innerText = convertedTrack.artist || 'YouTube';
+            document.getElementById(`deck-${id}-bpm`).innerText = deck.bpm.toFixed(1);
 
             drawWaveform(deck);
             document.getElementById('converter-modal').classList.add('hidden');
+        }
+
+        // Tempo estimate: low-pass the track, build an onset envelope and autocorrelate it
+        async function detectBPM(buffer) {
+            try {
+                const sr = buffer.sampleRate;
+                const len = Math.min(30, buffer.duration);
+                const offset = Math.max(0, Math.min(buffer.duration * 0.3, buffer.duration - len));
+                const off = new OfflineAudioContext(1, Math.floor(len * sr), sr);
+                const src = off.createBufferSource();
+                src.buffer = buffer;
+                const lp = off.createBiquadFilter();
+                lp.type = 'lowpass';
+                lp.frequency.value = 150;
+                src.connect(lp);
+                lp.connect(off.destination);
+                src.start(0, offset, len);
+                const data = (await off.startRendering()).getChannelData(0);
+
+                const hop = 256;
+                const frames = Math.floor(data.length / hop);
+                const onset = new Float32Array(frames);
+                let prev = 0;
+                for (let f = 0; f < frames; f++) {
+                    let e = 0;
+                    for (let i = f * hop; i < (f + 1) * hop; i++) e += data[i] * data[i];
+                    onset[f] = Math.max(0, e - prev);
+                    prev = e;
+                }
+
+                const fps = sr / hop;
+                const minLag = Math.floor(fps * 60 / 180);
+                const maxLag = Math.ceil(fps * 60 / 70);
+                const corr = new Float32Array(maxLag + 2);
+                for (let lag = minLag - 1; lag <= maxLag + 1; lag++) {
+                    let sum = 0;
+                    for (let i = 0; i + lag < frames; i++) sum += onset[i] * onset[i + lag];
+                    corr[lag] = sum;
+                }
+                let best = minLag;
+                for (let lag = minLag; lag <= maxLag; lag++) if (corr[lag] > corr[best]) best = lag;
+                if (corr[best] <= 0) return 120;
+
+                // Parabolic interpolation for sub-frame precision
+                const a = corr[best - 1], b = corr[best], c = corr[best + 1];
+                const denom = a - 2 * b + c;
+                const refined = best + (denom !== 0 ? 0.5 * (a - c) / denom : 0);
+                let bpm = 60 * fps / refined;
+                while (bpm < 85) bpm *= 2;
+                while (bpm > 175) bpm /= 2;
+                return Math.round(bpm * 10) / 10;
+            } catch (e) {
+                return 120;
+            }
         }
 
         function drawWaveform(deck) {
@@ -994,9 +1127,12 @@
 
             // Converter Actions
             document.getElementById('convert-yt-btn').addEventListener('click', triggerYouTubeConverter);
+            checkServer();
             document.getElementById('clear-yt-btn').addEventListener('click', () => document.getElementById('youtube-url-input').value = '');
             document.getElementById('modal-send-deck-a').addEventListener('click', () => sendConvertedToDeck('A'));
             document.getElementById('modal-send-deck-b').addEventListener('click', () => sendConvertedToDeck('B'));
+            document.getElementById('modal-close').addEventListener('click', () => document.getElementById('converter-modal').classList.add('hidden'));
+            document.getElementById('youtube-url-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') triggerYouTubeConverter(); });
 
             // Setup Decks Controls
             [deckA, deckB].forEach(deck => {
@@ -1198,6 +1334,8 @@
                     const targetDeck = idx % 2 === 0 ? deckA : deckB;
 
                     targetDeck.resetForNewTrack(audioBuffer);
+                    targetDeck.bpm = await detectBPM(audioBuffer);
+                    document.getElementById(`deck-${targetDeck.id.toLowerCase()}-bpm`).innerText = targetDeck.bpm.toFixed(1);
                     document.getElementById(`deck-${targetDeck.id.toLowerCase()}-title`).innerText = file.name;
                     document.getElementById(`deck-${targetDeck.id.toLowerCase()}-artist`).innerText = "Local MP3 File";
                     drawWaveform(targetDeck);
