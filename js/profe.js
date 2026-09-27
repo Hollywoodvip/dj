@@ -246,8 +246,10 @@ const Profe = (() => {
         if (autoMix && autoMix.mode === 'guide') {
             const pending = autoMix.plan.steps.filter(s => s.fired && s.pending && s.pending.length).slice(-1)[0];
             const nextStep = autoMix.plan.steps.find(s => !s.fired);
-            if (pending) add({ id: 'guide-now', p: 99, icon: 'fa-hand-point-right', title: autoMix.waiting ? 'Te espero' : 'AHORA',
-                text: pending.text + '. Haz clic en lo que brilla en verde (o Espacio).' + (autoMix.waiting ? ' El plan no avanza hasta que lo hagas.' : '') });
+            if (pending) add({ id: `guide-now-${pending.prep ? 'prep' : 'mix'}`, p: 99, icon: pending.prep ? 'fa-list-check' : 'fa-hand-point-right',
+                title: pending.prep ? `PREPARA EL ${autoMix.in.id}` : autoMix.waiting ? 'Te espero' : 'AHORA',
+                text: pending.text + '. Haz clic en lo que brilla en verde (o Espacio).' + (autoMix.waiting ? ' El plan no avanza hasta que lo hagas.' : ''),
+                when: () => (autoMix && !autoMix.started ? `el cambio empieza en ${barsText(Math.max(0, -mixBarPosition(autoMix)))}` : '') });
             else if (nextStep) add({ id: 'guide-next', p: 98, icon: 'fa-hourglass-half', title: 'Lo que viene', text: nextStep.text + '.',
                 when: () => { const b = nextStep.at - mixBarPosition(autoMix); return b > 0 ? `en ${barsText(b)}` : ''; } });
         } else if (autoMix) {
@@ -585,7 +587,8 @@ const Profe = (() => {
         const key = pairKey(live, next);
         if (refused.has(key)) return;
         const ctx = context(live);
-        if (ctx.barsToOut > 32 || ctx.barsToOut < -16) return;
+        if (ctx.barsToOut < -16) return;
+        if (mode === 'auto' && ctx.barsToOut > 32) return; // auto prepares in an instant, closer to the time
         armedKey = key;
         startAutoMix(false, mode === 'guide' ? 'guide' : 'auto');
     }

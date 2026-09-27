@@ -53,6 +53,12 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
 - **Problems light up too:** every warning in "TU MEZCLA" lights (amber) the
   control that fixes it, with its target; green lights are the mix plan's steps.
   The most important tip always wins (similar-priority tips don't flip-flop).
+- **Guided mix = the user does everything:** a preparation phase starts as soon
+  as the next track is loaded (crossfader side, cue point, tempo, EQ, choose the
+  end effect), one lit step at a time; then PLAY lights up and is quantized to
+  the bar (early/late presses land exactly on the beat). Nothing moves by itself
+  in guided mode; AUTO mode does the same steps by itself.
+- **Beat FX are post-crossfader** (like a DJM): echo/reverb trails survive a cut.
 - **Guided mode waits for the user:** the plan's clock stops while something is
   lit up (only the incoming track's start is automatic, it must be on the beat).
   Never stop a deck by surprise in guided mode: the user pauses the old deck

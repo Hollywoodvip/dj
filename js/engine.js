@@ -60,10 +60,13 @@ class Deck {
         this.eqLow.connect(this.eqMid);
         this.eqMid.connect(this.eqHigh);
         this.eqHigh.connect(this.filterNode);
-        this.filterNode.connect(this.fx.input);
-        this.fx.output.connect(this.gainNode);
+        this.filterNode.connect(this.gainNode);
         this.gainNode.connect(this.analyser);
         this.analyser.connect(destination);
+        // Beat FX sit after the channel fader and crossfader (like a Pioneer DJM):
+        // echo/reverb trails keep ringing after you cut the channel
+        destination.connect(this.fx.input);
+        this.fx.output.connect(Mixer.master);
     }
 
     /* ---------- beat grid helpers (track seconds) ---------- */
@@ -333,8 +336,6 @@ function initAudioEngine() {
     Mixer.master.connect(Mixer.limiter);
     Mixer.xfA = audioCtx.createGain();
     Mixer.xfB = audioCtx.createGain();
-    Mixer.xfA.connect(Mixer.master);
-    Mixer.xfB.connect(Mixer.master);
     Mixer.sampler = audioCtx.createGain();
     Mixer.sampler.connect(Mixer.master);
     return true;

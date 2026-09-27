@@ -36,7 +36,7 @@ function deckTemplate(k) {
                 </div>
             </div>
         </div>`;
-    const fxButtons = FX_TYPES.map(t => `<button data-fx="${t}" class="btn-dj btn-fx py-1 rounded font-bold text-[9px] text-gray-300">${FX_LABELS[t]}</button>`).join('');
+    const fxButtons = FX_TYPES.map(t => `<button id="deck-${k}-fxt-${t}" data-fx="${t}" class="btn-dj btn-fx py-1 rounded font-bold text-[9px] text-gray-300">${FX_LABELS[t]}</button>`).join('');
     const beatButtons = FX_BEATS.map(b => `<button id="deck-${k}-fxb-${String(b).replace('.', '_')}" data-fxbeats="${b}" class="btn-dj btn-fx py-1 rounded font-bold text-[10px] text-gray-300">${beatLabel(b)}</button>`).join('');
 
     return `
@@ -572,6 +572,7 @@ function togglePlay(deck) {
         }
         deck.pause();
     } else {
+        if (autoMix && autoMix.mode === 'guide' && autoMix.in === deck && !autoMix.started) { guidedStart(autoMix); return; }
         if (deck.getCurrentTime() >= deck.duration - 0.05) deck.pauseOffset = deck.cue;
         deck.play();
         if (deck.track) deck.track.played = true;
@@ -584,6 +585,8 @@ function togglePlay(deck) {
 function cueDown(deck) {
     ensureAudio();
     if (!deck.audioBuffer) return;
+    const lit = currentTargets.find(t => t.id === `deck-${deck.key}-cue-btn` && t.run);
+    if (lit) { lit.run(); return; }
     if (deck.isPlaying && !deck.cuePreview) {
         deck.pause();
         deck.seek(deck.cue);
@@ -1071,36 +1074,67 @@ function planTransition(live, next, now = false) {
     const xOut = live === decks.a ? -1 : 1;
     const xIn = -xOut;
     const steps = [];
-    const step = (at, text, actions) => steps.push({ at, text, actions });
-    // preset = applied automatically even in guided mode (incoming deck is still silent)
-    const set = (id, value, glide = 0, preset = false) => ({ type: 'set', id, value, glide, preset });
+    const step = (at, text, actions, extra = {}) => steps.push({ at, text, actions, ...extra });
+    const set = (id, value, glide = 0) => ({ type: 'set', id, value, glide });
+    const val = (id) => +$(id).value;
     const q = bars / 4;
+    const endFx = style === 'blend' && pace !== 'fast' ? { fx: 'reverb', beats: 2, level: 0.45 } : { fx: 'echo', beats: 0.5, level: style === 'echo' ? 0.7 : 0.55 };
 
-    if (style === 'blend') {
-        step(0, `Entra ${LB} desde ${formatTime(inStart, false)} con LOW −26, MID −10 y HI −8 (te lo dejo listo). Lleva el crossfader al centro`,
-            [{ type: 'startIn' }, set(`deck-${B}-eq-low`, -26, 0, true), set(`deck-${B}-eq-mid`, -10, 0, true), set(`deck-${B}-eq-high`, -8, 0, true), set('crossfader', 0, q)]);
-        // The mids carry the vocals: two singers at once sounds messy, so swap them
-        step(q, `Cambio de voces: MID de ${LA} a −12, MID y HI de ${LB} a 0`,
-            [set(`deck-${A}-eq-mid`, -12, 1), set(`deck-${B}-eq-mid`, 0, 1), set(`deck-${B}-eq-high`, 0, 1)]);
-        step(bars / 2, `Cambio de bajos: LOW de ${LA} a −26 y LOW de ${LB} a 0`, [set(`deck-${A}-eq-low`, -26, 0.25), set(`deck-${B}-eq-low`, 0, 0.25)]);
-        step(3 * q, `Baja el HI de ${LA} a −12`, [set(`deck-${A}-eq-high`, -12, Math.max(1, q - 1))]);
-        if (pace === 'fast') step(bars - 1, `ECHO 1/2 en ${LA} para despedirlo`, [{ type: 'fx', deck: A, fx: 'echo', beats: 0.5, level: 0.5 }]);
-        else if (bars >= 8) step(bars - 2, `REVERB (2 beats) en ${LA} para que se desvanezca`, [{ type: 'fx', deck: A, fx: 'reverb', beats: 2, level: 0.45 }]);
-        step(bars, `Crossfader entero a ${LB}`, [set('crossfader', xIn, 0.5)]);
-    } else if (style === 'filter') {
-        step(0, `Entra ${LB} desde ${formatTime(inStart, false)} con el LOW en −26 (te lo dejo listo). Crossfader al centro y empieza a subir el FILTER de ${LA} (high-pass) de a poco`,
-            [{ type: 'startIn' }, set(`deck-${B}-eq-low`, -26, 0, true), set('crossfader', 0, q), set(`deck-${A}-filter`, 70, bars)]);
-        step(bars / 2, `Cambio de bajos: LOW de ${LA} a −26 y LOW de ${LB} a 0`, [set(`deck-${A}-eq-low`, -26, 0.25), set(`deck-${B}-eq-low`, 0, 0.25)]);
-        step(bars - 1, `ECHO 1/2 en ${LA} para cerrar`, [{ type: 'fx', deck: A, fx: 'echo', beats: 0.5, level: 0.6 }]);
-        step(bars, `Crossfader entero a ${LB} (el eco se va apagando)`, [set('crossfader', xIn, 0.5)]);
-    } else {
-        step(-1, `Un compás antes: ECHO 1/2 en ${LA}`, [{ type: 'fx', deck: A, fx: 'echo', beats: 0.5, level: 0.7 }]);
-        step(0, `Corta ${LA} (el eco queda sonando) y entra ${LB} ${useDrop ? 'directo en su drop' : 'desde su IN'} (${formatTime(inStart, false)}). Crossfader al centro`,
-            [{ type: 'stopOut' }, { type: 'startIn' }, set('crossfader', 0, 0, true)]);
-        step(1, `Crossfader entero a ${LB}`, [set('crossfader', xIn, 1)]);
+    /* ---------- PREPARATION (right after loading the track, one thing at a time) ---------- */
+    let order = 0;
+    const prep = (text, actions) => step(-1000 + order++, text, actions, { prep: true });
+    if (Math.abs(val('crossfader') - xOut) > 0.15) {
+        prep(`Crossfader del lado del ${LA} (el que está sonando), así el ${LB} todavía no se escucha`, [set('crossfader', xOut, 0.1)]);
     }
-    if (style !== 'echo') step(bars + 0.5, `Pausa el Deck ${LA}: ya no se escucha (el crossfader está en ${LB})`, [{ type: 'pauseOut' }]);
-    step(bars + 0.75, `Listo: las perillas del ${LA} vuelven a 0`, [{ type: 'end' }]);
+    if (!next.isPlaying) {
+        prep(`Pon el ${LB} en su punto de entrada: ${formatTime(inStart, false)}${useDrop ? ' (su drop)' : ''}. Clic en su CUE iluminado`, [{ type: 'cue' }]);
+    }
+    const wantRate = r ? r.rate : 1;
+    if (!next.isPlaying && Math.abs(next.pitch - wantRate) > 0.0015) {
+        const pct = ((wantRate - 1) * 100).toFixed(1);
+        prep(r ? `Iguala el tempo del ${LB} al del ${LA}: pitch del ${LB} a ${pct >= 0 ? '+' : ''}${pct}%`
+            : `Pitch del ${LB} a 0% (los tempos están muy lejos para igualarlos sin que suene a ardilla)`,
+            [set(`deck-${B}-pitch`, wantRate)]);
+    }
+    const inEq = style === 'blend' ? { low: -26, mid: -10, high: -8 } : style === 'filter' ? { low: -26, mid: 0, high: 0 } : { low: 0, mid: 0, high: 0 };
+    const eqActs = ['low', 'mid', 'high'].filter(b => Math.abs(val(`deck-${B}-eq-${b}`) - inEq[b]) > 1).map(b => set(`deck-${B}-eq-${b}`, inEq[b]));
+    if (Math.abs(val(`deck-${B}-filter`)) > 3) eqActs.push(set(`deck-${B}-filter`, 0));
+    if (eqActs.length) {
+        prep(style === 'echo' ? `Perillas del ${LB} en 0: entra con todo, en su drop`
+            : `Deja las perillas del ${LB} listas: LOW −26${style === 'blend' ? ', MID −10, HI −8' : ''}. Así entra suave y sin bajo`, eqActs);
+    }
+    const outEqActs = ['low', 'mid', 'high'].filter(b => Math.abs(val(`deck-${A}-eq-${b}`)) > 1).map(b => set(`deck-${A}-eq-${b}`, 0));
+    if (Math.abs(val(`deck-${A}-filter`)) > 3) outEqActs.push(set(`deck-${A}-filter`, 0));
+    if (outEqActs.length) prep(`Perillas del ${LA} en 0 antes de empezar la mezcla`, outEqActs);
+    if (live.fx.type !== endFx.fx || live.fx.beats !== endFx.beats) {
+        prep(`Elige el efecto del final: ${FX_LABELS[endFx.fx]} ${beatLabel(endFx.beats)} en el ${LA} (todavía NO lo prendas)`, [{ type: 'fxPrep', deck: A, ...endFx }]);
+    }
+
+    /* ---------- TRANSITION (bars counted from the moment the new track comes in) ---------- */
+    const playText = `Dale PLAY al ${LB} en el 1 del compás (si lo aprietas un poco antes o después, entra justo en el compás igual)`;
+    if (style === 'blend') {
+        step(0, `${playText} y lleva el crossfader al centro de a poco`, [{ type: 'startIn' }, set('crossfader', 0, q)]);
+        // The mids carry the vocals: two singers at once sounds messy, so swap them
+        step(q, `Cambio de voces: MID del ${LA} a −12, MID y HI del ${LB} a 0`,
+            [set(`deck-${A}-eq-mid`, -12, 1), set(`deck-${B}-eq-mid`, 0, 1), set(`deck-${B}-eq-high`, 0, 1)]);
+        step(bars / 2, `Cambio de bajos: LOW del ${LA} a −26 y LOW del ${LB} a 0`, [set(`deck-${A}-eq-low`, -26, 0.25), set(`deck-${B}-eq-low`, 0, 0.25)]);
+        step(3 * q, `Baja el HI del ${LA} a −12`, [set(`deck-${A}-eq-high`, -12, Math.max(1, q - 1))]);
+        step(bars - (endFx.fx === 'reverb' ? 2 : 1), `Prende el ${FX_LABELS[endFx.fx]} del ${LA} (FX ON) para despedirlo`, [{ type: 'fx', deck: A, ...endFx }]);
+        step(bars, `Crossfader entero al ${LB}`, [set('crossfader', xIn, 0.5)]);
+    } else if (style === 'filter') {
+        step(0, `${playText}, crossfader al centro y empieza a subir el FILTER del ${LA} (high-pass) de a poco`,
+            [{ type: 'startIn' }, set('crossfader', 0, q), set(`deck-${A}-filter`, 70, bars)]);
+        step(bars / 2, `Cambio de bajos: LOW del ${LA} a −26 y LOW del ${LB} a 0`, [set(`deck-${A}-eq-low`, -26, 0.25), set(`deck-${B}-eq-low`, 0, 0.25)]);
+        step(bars - 1, `Prende el ECHO del ${LA} (FX ON) para cerrar`, [{ type: 'fx', deck: A, ...endFx }]);
+        step(bars, `Crossfader entero al ${LB} (el eco se va apagando solo)`, [set('crossfader', xIn, 0.5)]);
+    } else {
+        step(-1, `Un compás antes: prende el ECHO del ${LA} (FX ON)`, [{ type: 'fx', deck: A, ...endFx }]);
+        step(0, `${playText} y pasa el crossfader entero al ${LB} de una: el eco del ${LA} sigue sonando y se apaga solo`,
+            [{ type: 'startIn' }, set('crossfader', xIn, 0.25)]);
+    }
+    const endBar = style === 'echo' ? 2 : bars + 0.5;
+    step(endBar, `Pausa el Deck ${LA}: ya no se escucha (el crossfader está en el ${LB})`, [{ type: 'pauseOut' }]);
+    step(endBar + 0.25, `Listo: el efecto del ${LA} se apaga y sus perillas vuelven a 0`, [{ type: 'end' }]);
 
     return {
         style, styleLabel: MIX_STYLES[style], reason, bars, target, inStart, useDrop, dropAtEnd, pace,
@@ -1130,7 +1164,10 @@ function startAutoMix(now = false, mode = 'auto') {
 
     const plan = planTransition(live, next, now);
     live.pitchReturn = null; // freeze the playing deck's tempo during the mix
-    if (plan.synced) {
+    if (plan.synced) next.syncFactor = plan.factor;
+    if (mode === 'guide') {
+        // Guided: nothing moves by itself, every step lights up for you
+    } else if (plan.synced) {
         next.pitchReturn = null;
         next.syncFactor = plan.factor;
         next.setPitch(plan.rate);
@@ -1147,9 +1184,9 @@ function startAutoMix(now = false, mode = 'auto') {
     plan.steps.forEach(s => { s.fired = false; s.pending = []; });
     autoMix = { out: live, in: next, plan, mode, target: plan.target, bars: plan.bars, phase: 'waiting', progress: 0, started: false, startCtx: 0 };
     // Crossfader on the playing side so the incoming deck starts silent
-    glideControl('crossfader', plan.xOut, 400);
+    if (mode === 'auto') glideControl('crossfader', plan.xOut, 400);
     toast(mode === 'guide'
-        ? `Mezcla GUIADA: se van a iluminar las perillas que tienes que mover. Empieza a las ${formatTime(plan.target, false)} del ${live.id}`
+        ? `Mezcla GUIADA: primero preparamos el ${next.id} paso a paso (lo que brilla), y el cambio empieza a las ${formatTime(plan.target, false)} del ${live.id}`
         : now ? `Mezclando al Deck ${next.id} en el próximo compás` : `Auto mix armado (${plan.styleLabel}): entra el Deck ${next.id} a las ${formatTime(plan.target, false)} del ${live.id}`, 'ok');
     updateAssistant();
     return true;
@@ -1196,22 +1233,40 @@ function fireStep(m, step) {
     step.pending = [];
     step.actions.forEach(a => {
         if (a.type === 'set') {
-            if (m.mode === 'auto' || a.preset) glideControl(a.id, a.value, a.glide * mixBarSeconds(m) * 1000);
+            if (m.mode === 'auto') glideControl(a.id, a.value, a.glide * mixBarSeconds(m) * 1000);
             else step.pending.push({ id: a.id, value: a.value });
+        } else if (a.type === 'fxPrep') {
+            const d = decks[a.deck];
+            if (m.mode === 'auto') {
+                d.fx.setType(a.fx); d.fx.setBeats(a.beats); setControl(`deck-${a.deck}-fx-level`, a.level); refreshFxUI(d);
+            } else {
+                step.pending.push({ id: `deck-${a.deck}-fxt-${a.fx}`, label: 'clic', check: () => d.fx.type === a.fx, run: () => { d.fx.setType(a.fx); refreshFxUI(d); } });
+                step.pending.push({ id: `deck-${a.deck}-fxb-${String(a.beats).replace('.', '_')}`, label: 'clic', check: () => d.fx.beats === a.beats, run: () => { d.fx.setBeats(a.beats); refreshFxUI(d); } });
+                step.pending.push({ id: `deck-${a.deck}-fx-level`, value: a.level });
+            }
         } else if (a.type === 'fx') {
             const d = decks[a.deck];
-            d.fx.setType(a.fx);
-            d.fx.setBeats(a.beats);
-            setControl(`deck-${a.deck}-fx-level`, a.level);
-            if (m.mode === 'auto') d.fx.setOn(true);
-            else step.pending.push({ id: `deck-${a.deck}-fx-on`, fx: d.fx });
-            refreshFxUI(d);
+            if (m.mode === 'auto') {
+                d.fx.setType(a.fx); d.fx.setBeats(a.beats); setControl(`deck-${a.deck}-fx-level`, a.level); d.fx.setOn(true); refreshFxUI(d);
+            } else {
+                // The effect was chosen in the preparation: now just FX ON
+                if (d.fx.type !== a.fx) { d.fx.setType(a.fx); d.fx.setBeats(a.beats); refreshFxUI(d); }
+                step.pending.push({ id: `deck-${a.deck}-fx-on`, label: 'FX ON · clic', fx: d.fx });
+            }
+        } else if (a.type === 'cue') {
+            const inc = m.in, at = m.plan.inStart;
+            const go = () => { inc.cue = at; inc.seek(at); };
+            if (m.mode === 'auto') go();
+            else step.pending.push({ id: `deck-${inc.key}-cue-btn`, label: `IR A ${formatTime(at, false)} · clic`, check: () => !inc.isPlaying && Math.abs(inc.getCurrentTime() - at) < 0.15, run: go });
+        } else if (a.type === 'startIn') {
+            const inc = m.in;
+            if (m.mode === 'guide' && !m.started) step.pending.push({ id: `deck-${inc.key}-play-btn`, label: 'PLAY en el 1 · clic', check: () => m.started, run: () => { if (!m.started) togglePlay(inc); } });
         } else if (a.type === 'stopOut') {
             if (m.out.isPlaying) m.out.pause();
         } else if (a.type === 'pauseOut') {
             const out = m.out;
             if (m.mode === 'auto') { if (out.isPlaying) out.pause(); }
-            else if (out.isPlaying) step.pending.push({ id: `deck-${out.key}-play-btn`, label: 'PAUSA · clic', check: () => !out.isPlaying, run: () => togglePlay(out) });
+            else if (out.isPlaying) step.pending.push({ id: `deck-${out.key}-play-btn`, label: 'PAUSA · clic', check: () => !out.isPlaying, run: () => { if (out.isPlaying) togglePlay(out); } });
         } else if (a.type === 'end') {
             finishAutoMix();
         }
@@ -1223,7 +1278,7 @@ function targetReached(t) {
     if (t.check) return t.check();
     if (t.fx) return t.fx.on;
     const el = $(t.id);
-    const tol = (+el.max - +el.min) * 0.1;
+    const tol = t.id.endsWith('-pitch') ? 0.0015 : (+el.max - +el.min) * 0.1;
     return Math.abs(+el.value - t.value) <= tol;
 }
 
@@ -1242,6 +1297,8 @@ function formatTarget(t) {
     if (t.label) return t.label;
     if (t.fx) return 'ON';
     if (t.id === 'crossfader') return t.value === 0 ? 'CENTRO' : t.value < 0 ? 'A' : 'B';
+    if (t.id.endsWith('-pitch')) { const pct = ((t.value - 1) * 100).toFixed(1); return `${pct >= 0 ? '+' : ''}${pct}%`; }
+    if (t.id.endsWith('-fx-level')) return `${Math.round(t.value * 100)}%`;
     if (t.id.endsWith('filter')) return t.value > 0 ? `HPF ${t.value}` : t.value < 0 ? `LPF ${-t.value}` : '0';
     return `${t.value > 0 ? '+' : ''}${t.value} dB`;
 }
@@ -1271,12 +1328,17 @@ let currentTargets = [];
 
 // One click on a lit-up control (or Space for all of them) moves it to its target by itself
 function applyTarget(t) {
+    if (targetReached(t)) return; // already done: never toggle it back
     if (t.run) { t.run(); return; }
     if (t.fx) { if (!t.fx.on) { t.fx.setOn(true); refreshFxUI(t.fx.deck); } return; }
     if (t.value !== undefined) glideControl(t.id, t.value, glideMsFor(t.id));
 }
 // Pitch changes are audible: fix them slowly
-const glideMsFor = (id) => (id.endsWith('-pitch') ? 4000 : 350);
+const glideMsFor = (id) => {
+    if (!id.endsWith('-pitch')) return 350;
+    const deck = decks[id.split('-')[1]];
+    return deck && deck.isPlaying ? 4000 : 400;
+};
 function applyAllTargets() {
     ensureAudio();
     if (!currentTargets.length) { toast('No hay nada que mover ahora mismo', 'info'); return; }
@@ -1315,6 +1377,28 @@ function finishAutoMix(early = false) {
     updateAssistant();
 }
 
+// Guided mix: you pressed PLAY on the new track. It comes in exactly on the bar:
+// on the planned one if you're close, otherwise on the next bar of the playing track
+function guidedStart(m) {
+    if (m.started) return;
+    const { out, in: inc, plan } = m;
+    const pos = out.getCurrentTime();
+    const barReal = 4 * out.beatSec / out.playbackRate;
+    let dt = (m.target - pos) / out.playbackRate;
+    if (dt < 0.05 || dt > 2 * barReal) {
+        m.target = out.nextBarAfter(pos + 0.08 * out.playbackRate);
+        dt = (m.target - pos) / out.playbackRate;
+    }
+    m.startCtx = audioCtx.currentTime + dt;
+    m.pausedBars = 0;
+    inc.play(plan.inStart, m.startCtx);
+    if (inc.track) inc.track.played = true;
+    m.started = true;
+    m.phase = 'mixing';
+    if (dt > 0.25) toast(`El ${inc.id} entra justo en el próximo compás`, 'ok');
+    renderLibrary();
+}
+
 function tickAutoMix() {
     const m = autoMix;
     if (!m) return;
@@ -1322,7 +1406,11 @@ function tickAutoMix() {
     if (!m.started) {
         if (!out.isPlaying) { cancelAutoMix('Mezcla cancelada: el deck se detuvo'); return; }
         const dt = (m.target - out.getCurrentTime()) / out.playbackRate;
-        if (dt <= 0.3) {
+        // Guided: the new track comes in when you press PLAY (quantized to the bar).
+        // Only if the old track is about to end does it come in by itself
+        const leftBars = (out.duration - out.getCurrentTime()) / (4 * out.beatSec);
+        if (m.mode === 'guide' && leftBars < 3) guidedStart(m);
+        if (m.mode === 'auto' && dt <= 0.3) {
             // Start the incoming deck sample-accurately on the outgoing deck's bar
             m.startCtx = audioCtx.currentTime + Math.max(0.01, dt);
             if (!inc.isPlaying) {
@@ -1365,10 +1453,23 @@ function tickAutoMix() {
     if (m.started && plan.style !== 'echo' && !out.isPlaying) { finishAutoMix(true); return; }
     const barPos = mixBarPosition(m);
     m.progress = clamp(barPos / plan.bars, 0, 1);
+    let prepBlocked = false;
     for (const s of plan.steps) {
         if (!autoMix) return;
-        if (s.fired || barPos < s.at) continue;
-        if (s.at >= 0 && !m.started) continue;
+        if (s.prep) {
+            // Preparation: one thing at a time in guided mode, all at once in auto mode
+            if (s.fired) { if (m.mode === 'guide' && s.pending && s.pending.some(t => !targetReached(t))) prepBlocked = true; continue; }
+            if (m.mode === 'guide' && prepBlocked) continue;
+            fireStep(m, s);
+            if (m.mode === 'guide' && s.pending.length) prepBlocked = true;
+            continue;
+        }
+        if (s.fired) continue;
+        const isStart = s.actions.some(a => a.type === 'startIn');
+        // In guided mode the PLAY lights up one bar early so you can get ready
+        const at = isStart && m.mode === 'guide' ? s.at - (plan.style === 'echo' ? 0.5 : 1) : s.at;
+        if (barPos < at) continue;
+        if (s.at >= 0 && !m.started && !(isStart && m.mode === 'guide')) continue;
         fireStep(m, s);
     }
     if (autoMix && m.mode === 'guide') refreshCoachTargets();
@@ -1406,13 +1507,15 @@ function escapeHtml(s) {
 }
 
 function stepLabel(at) {
+    if (at <= -500) return 'PREPARA';
     if (at < 0) return `${at} comp.`;
     return `comp. ${Number.isInteger(at) ? at : at.toFixed(1)}`;
 }
 
 function renderPlan(plan, m, live, next) {
     const total = plan.bars + 0.5;
-    const minAt = Math.min(0, ...plan.steps.map(s => s.at));
+    const timed = plan.steps.filter(s => !s.prep);
+    const minAt = Math.min(0, ...timed.map(s => s.at));
     const span = total - minAt;
     const barPos = m ? mixBarPosition(m) : null;
     let status;
@@ -1427,7 +1530,7 @@ function renderPlan(plan, m, live, next) {
     const pct = plan.rate ? ((plan.rate - 1) * 100).toFixed(1) : null;
     const current = m ? plan.steps.filter(s => s.fired && s.pending && s.pending.length).slice(-1) : [];
 
-    const markers = plan.steps.map(s => {
+    const markers = timed.map(s => {
         const left = ((s.at - minAt) / span) * 100;
         const color = s.fired ? '#34d399' : '#4b5563';
         return `<div class="absolute top-0 w-1 h-3 -ml-0.5 rounded" style="left:${left}%;background:${color}"></div>`;
@@ -2011,14 +2114,15 @@ function setupGlobal() {
     $('sampler-gain').addEventListener('input', (e) => { if (Mixer.sampler) Mixer.sampler.gain.value = +e.target.value; });
     const xf = $('crossfader');
     // Lit-up crossfader: one click sends it to the target instead of jumping to the cursor
-    xf.addEventListener('mousedown', (e) => {
-        const lit = litTargetFor(xf);
-        if (lit) { e.preventDefault(); glideControl('crossfader', lit.value, 350); }
+    // Lit-up sliders: one click sends them to the target instead of jumping to the cursor
+    document.querySelectorAll('input[type=range]:not(.hidden)').forEach(input => {
+        const go = (e) => {
+            const lit = litTargetFor(input);
+            if (lit && lit.id === input.id) { e.preventDefault(); ensureAudio(); glideControl(input.id, lit.value, glideMsFor(input.id)); }
+        };
+        input.addEventListener('mousedown', go);
+        input.addEventListener('touchstart', go, { passive: false });
     });
-    xf.addEventListener('touchstart', (e) => {
-        const lit = litTargetFor(xf);
-        if (lit) { e.preventDefault(); glideControl('crossfader', lit.value, 350); }
-    }, { passive: false });
     xf.addEventListener('input', () => applyCrossfader(+xf.value));
     xf.addEventListener('dblclick', () => setControl('crossfader', 0));
     wheelSlider(xf, 300);
