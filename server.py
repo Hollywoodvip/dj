@@ -150,6 +150,53 @@ class DJHandler(SimpleHTTPRequestHandler):
             return self.handle_convert(urllib.parse.parse_qs(parsed.query))
         return super().do_GET()
 
+    def do_POST(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/api/mp3":
+            return self.handle_mp3(urllib.parse.parse_qs(parsed.query))
+        return self.send_json(404, {"error": "Not found"})
+
+    def handle_mp3(self, query):
+        """Convert a recorded mix (webm/m4a from the browser) to a 320 kbps MP3."""
+        if not HAS_FFMPEG:
+            return self.send_json(500, {"error": "ffmpeg no está instalado (brew install ffmpeg)"})
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > 2 * 1024 * 1024 * 1024:
+            return self.send_json(400, {"error": "Grabación vacía o demasiado grande"})
+        name = (query.get("name") or ["WebDJ mezcla"])[0]
+        workdir = tempfile.mkdtemp(prefix="webdj-rec-")
+        try:
+            src = os.path.join(workdir, "mix.input")
+            dst = os.path.join(workdir, "mix.mp3")
+            remaining = length
+            with open(src, "wb") as f:
+                while remaining > 0:
+                    chunk = self.rfile.read(min(1 << 20, remaining))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    remaining -= len(chunk)
+            result = subprocess.run(
+                ["ffmpeg", "-y", "-loglevel", "error", "-i", src, "-codec:a", "libmp3lame", "-b:a", "320k", dst],
+                capture_output=True, text=True, timeout=1800,
+            )
+            if result.returncode != 0 or not os.path.exists(dst):
+                return self.send_json(500, {"error": f"ffmpeg falló: {result.stderr.strip()[-300:]}"})
+            safe = "".join(c for c in name if c not in '\\/:*?"<>|').strip() or "WebDJ mezcla"
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/mpeg")
+            self.send_header("Content-Length", str(os.path.getsize(dst)))
+            self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{urllib.parse.quote(safe)}.mp3")
+            self.end_headers()
+            with open(dst, "rb") as f:
+                shutil.copyfileobj(f, self.wfile)
+        except subprocess.TimeoutExpired:
+            self.send_json(500, {"error": "La conversión tardó demasiado"})
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+
     def send_index(self):
         # Stamp every script with its modification time: after a `git pull` the
         # browser has to load the new files instead of a cached copy

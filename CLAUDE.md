@@ -6,7 +6,8 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
 (Chrome, often fullscreen at ~1470×900). **All UI text for the user is Spanish.**
 
 ## Run / test
-- `python server.py` → http://localhost:8000 (serves the app, `/api/status`, `/api/convert`).
+- `python server.py` → http://localhost:8000 (serves the app, `/api/status`,
+  `/api/convert`, and `POST /api/mp3` which turns a recorded mix into a 320 kbps MP3 with ffmpeg).
   `index.html` is served with `?v=<mtime>` on every script and the version (last
   commit) shows next to the logo: if the user reports old behaviour, check that
   version first (they may not have pulled / restarted).
@@ -18,6 +19,9 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
 - Syntax check: `node -e "new Function(require('fs').readFileSync('js/app.js','utf8'))"`.
 
 ## Files (classic scripts sharing globals, loaded in this order)
+- `js/store.js` — IndexedDB store for the library (tracks with bytes, analysis,
+  `cues`, `bpmFixed`). Bump `Analysis.VERSION` when the analysis changes: stale
+  saved tracks are re-analysed in the background on startup.
 - `js/analysis.js` — `Analysis.analyzeTrack(buffer)`: BPM + beat grid (`firstBeat`,
   `downbeat`, `beatSec`), key (Camelot), loudness, energy per bar, `mixIn`,
   `introEnd` (= first drop), `breakdowns`, `outroStart`, `mixOut`, `mixBars`.

@@ -31,6 +31,11 @@ out and in, how long, and warns about tempo or key clashes.
 phrase, crossfade, bass swap). **AUTO DJ** keeps mixing through your library,
 picking the best-matching track next.
 
+**Your library is saved** in the browser (IndexedDB): tracks, analysis, hot cues
+and BPM fixes survive reloads; pasting a YouTube link you already have doesn't
+download it again. **REC** records the whole mix (effects and sampler too) with a
+tracklist; download it as-is or as a 320 kbps MP3 (needs ffmpeg).
+
 **Also:** sampler pads (air horn, siren, riser, laser), library with match stars,
 keyboard shortcuts for everything (press **H** in the app).
 

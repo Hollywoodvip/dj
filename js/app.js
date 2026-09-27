@@ -359,14 +359,70 @@ async function decodeBytes(bytes) {
     return audioCtx.decodeAudioData(bytes.slice(0));
 }
 
+/* ---------- persistence (IndexedDB): the library survives reloads ---------- */
+function youtubeKey(url) {
+    const m = String(url || '').match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([\w-]{11})/);
+    return m ? m[1] : String(url || '').trim();
+}
+
+async function saveEntry(entry) {
+    if (!entry || entry.demo || !entry.id) return;
+    const { played, ...record } = entry;
+    try {
+        await Store.put(record);
+    } catch (e) {
+        console.warn(e);
+        toast('No se pudo guardar en la librería (¿sin espacio en el disco?)', 'warn');
+    }
+    refreshStorageInfo();
+}
+
+async function refreshStorageInfo() {
+    const bytes = await Store.usage();
+    const n = library.length;
+    $('library-count').textContent = n
+        ? `${n} tema${n === 1 ? '' : 's'} · guardados en este navegador${bytes ? ` (${(bytes / 1048576).toFixed(0)} MB)` : ''}`
+        : '';
+    $('library-clear').classList.toggle('hidden', !n);
+}
+
+async function loadLibraryFromStore() {
+    let records = [];
+    try { records = await Store.all(); } catch (e) { console.warn('Library storage unavailable', e); return; }
+    records.sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));
+    records.forEach(r => {
+        library.push({ ...r, played: false });
+        libraryId = Math.max(libraryId, r.id);
+    });
+    renderLibrary();
+    refreshStorageInfo();
+    if (records.length) toast(`Tu librería: ${records.length} tema${records.length === 1 ? '' : 's'} guardado${records.length === 1 ? '' : 's'}`, 'ok');
+    reanalyzeStale();
+}
+
+// Tracks analysed by an older version of the analysis get re-analysed quietly
+async function reanalyzeStale() {
+    for (const e of library) {
+        if (e.analysis && e.analysis.version === Analysis.VERSION) continue;
+        if (deckList.some(d => d.track === e)) continue;
+        try {
+            const buf = await new OfflineAudioContext(2, 1, 44100).decodeAudioData(e.bytes.slice(0));
+            e.analysis = await Analysis.analyzeTrack(buf, e.bpmFixed && e.analysis ? e.analysis.bpm : null);
+            await saveEntry(e);
+            renderLibrary();
+        } catch (err) { console.warn('Re-analysis failed', err); }
+    }
+}
+
 // Decode + analyse audio bytes and add them to the library
-async function importTrack({ title, artist, source, bytes }) {
+async function importTrack({ title, artist, source, bytes, url = null }) {
     ensureAudio();
     const buffer = await decodeBytes(bytes);
     const analysis = await Analysis.analyzeTrack(buffer);
-    const entry = { id: ++libraryId, title, artist, source, bytes, analysis, duration: buffer.duration, played: false };
+    const entry = { id: ++libraryId, title, artist, source, url, bytes, analysis, duration: buffer.duration, cues: null, addedAt: Date.now(), played: false };
     library.push(entry);
     renderLibrary();
+    saveEntry(entry);
     return { entry, buffer };
 }
 
@@ -382,6 +438,7 @@ async function loadEntryToDeck(entry, deck, buffer = null, { onlyIfEmpty = false
         if (onlyIfEmpty && (deck.track || deck.isPlaying)) return false;
         if (autoMix && (autoMix.in === deck || autoMix.out === deck)) cancelAutoMix();
         deck.load(buffer, entry.analysis, entry);
+        if (entry.cues) deck.hotCues = { ...entry.cues }; // your saved hot cues
         onDeckLoaded(deck);
         return true;
     } catch (e) {
@@ -415,7 +472,7 @@ function trackMatch(entry, live) {
 
 function renderLibrary() {
     const { live } = liveAndNext();
-    $('library-count').textContent = library.length ? `${library.length} temas` : '';
+    refreshStorageInfo();
     const body = $('library-body');
     if (!library.length) {
         body.innerHTML = '<tr><td colspan="7" class="py-3 text-center text-gray-500">Vacía. Extrae temas de YouTube o arrastra archivos aquí abajo.</td></tr>';
@@ -445,7 +502,13 @@ function renderLibrary() {
         tr.children[1].children[1].textContent = entry.artist + (entry.played ? ' · ya sonó' : '');
         tr.querySelector('[data-load="a"]').onclick = () => loadEntryToDeck(entry, decks.a);
         tr.querySelector('[data-load="b"]').onclick = () => loadEntryToDeck(entry, decks.b);
-        tr.querySelector('[data-remove]').onclick = () => { library.splice(library.indexOf(entry), 1); renderLibrary(); };
+        tr.querySelector('[data-remove]').onclick = () => {
+            if (!confirm(`¿Quitar "${entry.title}" de tu librería?`)) return;
+            library.splice(library.indexOf(entry), 1);
+            Store.remove(entry.id).catch(() => {});
+            renderLibrary();
+            refreshStorageInfo();
+        };
         body.appendChild(tr);
     });
 }
@@ -618,8 +681,12 @@ function hotCue(deck, n, erase = false) {
         deck.hotCues[n] = deck.nearestBeat(deck.getCurrentTime());
     } else {
         deck.seek(deck.hotCues[n]);
+        refreshDeckButtons(deck);
+        return;
     }
     refreshDeckButtons(deck);
+    // Hot cues are saved with the track
+    if (deck.track && !deck.track.demo) { deck.track.cues = { ...deck.hotCues }; saveEntry(deck.track); }
 }
 
 function tapTempo(deck) {
@@ -650,6 +717,7 @@ function setTrackBpm(deck, bpm, anchor = null) {
     }
     deck.bpm = bpm;
     delete a.fastOut;
+    if (deck.track && !deck.track.demo) { deck.track.bpmFixed = true; saveEntry(deck.track); }
     const other = otherDeck(deck);
     if (other.syncOn) matchTempo(other, deck);
     if (deck.syncOn) matchTempo(deck, other);
@@ -1909,6 +1977,19 @@ async function triggerYouTubeConverter() {
     $('modal-track-name').innerText = url;
     convertedTrack = null;
 
+    // Already in the library: no need to download it again
+    const existing = library.find(e => e.url && youtubeKey(e.url) === youtubeKey(url));
+    if (existing) {
+        $('modal-track-name').innerText = `${existing.artist} - ${existing.title}`;
+        ['step-1', 'step-2'].forEach(id => setStep($(id), 'done', 'Ya estaba en tu librería: no hace falta bajarlo de nuevo'));
+        setStep($('step-3'), 'done', `Listo · ${existing.analysis ? existing.analysis.bpm.toFixed(1) + ' BPM' : ''}`);
+        progressBar.style.width = '100%';
+        convertedTrack = { entry: existing, buffer: null };
+        deckActions.classList.remove('opacity-50', 'pointer-events-none');
+        $('youtube-url-input').value = '';
+        return;
+    }
+
     setStep(step1, 'active', 'Fetching video & extracting audio on the server...');
     setStep(step2, 'waiting', 'Transferring audio to the browser...');
     setStep(step3, 'waiting', 'Decoding + analysing BPM, key & mix points...');
@@ -1974,7 +2055,7 @@ async function triggerYouTubeConverter() {
 
     setStep(step3, 'active', 'Decoding + analysing BPM, key & mix points...');
     try {
-        convertedTrack = await importTrack({ title, artist, source: 'youtube', bytes });
+        convertedTrack = await importTrack({ title, artist, source: 'youtube', bytes, url });
     } catch (e) {
         fail(step3, 'Your browser could not decode this audio format. Try Chrome or Firefox.');
         return;
@@ -2110,6 +2191,18 @@ function setupDeck(deck) {
 
 function setupGlobal() {
     $('audio-init-btn').addEventListener('click', ensureAudio);
+    $('rec-btn').addEventListener('click', toggleRecording);
+    $('library-clear').addEventListener('click', async () => {
+        if (!confirm('¿Borrar TODOS los temas guardados en este navegador? No se puede deshacer.')) return;
+        await Store.clear();
+        library.splice(0, library.length);
+        renderLibrary();
+        refreshStorageInfo();
+    });
+    // Don't lose a recording (or one in progress) by closing the page
+    window.addEventListener('beforeunload', (e) => {
+        if (Recorder.rec || Recorder.list.some(r => !r.downloaded)) { e.preventDefault(); e.returnValue = ''; }
+    });
     $('master-gain').addEventListener('input', (e) => { if (Mixer.master) Mixer.master.gain.setTargetAtTime(+e.target.value, audioCtx.currentTime, 0.01); });
     $('sampler-gain').addEventListener('input', (e) => { if (Mixer.sampler) Mixer.sampler.gain.value = +e.target.value; });
     const xf = $('crossfader');
@@ -2224,6 +2317,115 @@ function setupGlobal() {
 }
 
 /* ==========================================================================
+   RECORDING: everything that comes out of the master (effects and sampler too)
+   ========================================================================== */
+const Recorder = { rec: null, chunks: [], startedAt: 0, dest: null, list: [], tracks: [] };
+
+function toggleRecording() {
+    ensureAudio();
+    if (Recorder.rec) { Recorder.rec.stop(); return; }
+    if (!window.MediaRecorder) { toast('Este navegador no puede grabar audio (usa Chrome)', 'warn'); return; }
+    Recorder.dest = Recorder.dest || audioCtx.createMediaStreamDestination();
+    Mixer.limiter.connect(Recorder.dest);
+    const type = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(t => MediaRecorder.isTypeSupported(t)) || '';
+    const rec = new MediaRecorder(Recorder.dest.stream, type ? { mimeType: type, audioBitsPerSecond: 256000 } : {});
+    Recorder.chunks = [];
+    Recorder.tracks = [];
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) Recorder.chunks.push(e.data); };
+    rec.onstop = () => {
+        try { Mixer.limiter.disconnect(Recorder.dest); } catch (e) {}
+        const blob = new Blob(Recorder.chunks, { type: rec.mimeType || type || 'audio/webm' });
+        const seconds = (performance.now() - Recorder.startedAt) / 1000;
+        const at = new Date(Date.now() - seconds * 1000);
+        const stamp = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')} ${String(at.getHours()).padStart(2, '0')}.${String(at.getMinutes()).padStart(2, '0')}`;
+        Recorder.list.unshift({ blob, seconds, name: `WebDJ mezcla ${stamp}`, ext: blob.type.includes('mp4') ? 'm4a' : 'webm', tracks: Recorder.tracks.slice(), downloaded: false });
+        Recorder.rec = null;
+        renderRecordings();
+        refreshRecButton();
+        toast(`Grabación lista (${formatTime(seconds, false)}): descárgala abajo, en MIS GRABACIONES`, 'ok');
+    };
+    rec.start(1000);
+    Recorder.rec = rec;
+    Recorder.startedAt = performance.now();
+    refreshRecButton();
+    toast('Grabando tu mezcla: todo lo que suena (efectos y sampler incluidos)', 'ok');
+}
+
+// Tracklist of the recording: which tracks were heard, and when
+function tickRecorderTracklist() {
+    if (!Recorder.rec) return;
+    const t = (performance.now() - Recorder.startedAt) / 1000;
+    const x = +$('crossfader').value;
+    deckList.forEach(d => {
+        const gain = d === decks.a ? Math.cos((x + 1) * 0.25 * Math.PI) : Math.sin((x + 1) * 0.25 * Math.PI);
+        if (!d.isPlaying || !d.track || gain < 0.3) return;
+        const title = `${d.track.artist ? d.track.artist + ' - ' : ''}${d.track.title}`;
+        if (!Recorder.tracks.some(r => r.title === title)) Recorder.tracks.push({ t, title });
+    });
+}
+
+function refreshRecButton() {
+    const btn = $('rec-btn');
+    const on = !!Recorder.rec;
+    btn.classList.toggle('bg-rose-600', on);
+    btn.classList.toggle('text-white', on);
+    $('rec-label').textContent = on ? `GRABANDO ${formatTime((performance.now() - Recorder.startedAt) / 1000, false)} · STOP` : 'REC';
+}
+
+function downloadBlob(blob, filename) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+
+async function downloadRecordingMp3(item, button) {
+    button.disabled = true;
+    const label = button.innerHTML;
+    button.innerHTML = '<i class="fa-solid fa-circle-notch animate-spin"></i> MP3...';
+    try {
+        const res = await fetch(`/api/mp3?name=${encodeURIComponent(item.name)}`, { method: 'POST', body: item.blob });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Error ${res.status}`);
+        downloadBlob(await res.blob(), `${item.name}.mp3`);
+        item.downloaded = true;
+    } catch (e) {
+        toast(`No se pudo convertir a MP3: ${e.message}. Descarga el original.`, 'warn');
+    } finally {
+        button.disabled = false;
+        button.innerHTML = label;
+    }
+}
+
+function renderRecordings() {
+    $('recordings').classList.toggle('hidden', !Recorder.list.length);
+    const list = $('recordings-list');
+    list.innerHTML = '';
+    Recorder.list.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'flex flex-wrap items-center gap-2 bg-black/30 rounded px-2 py-1.5 border border-gray-800';
+        row.innerHTML = `
+            <i class="fa-solid fa-compact-disc text-rose-400"></i>
+            <span class="font-bold text-white"></span>
+            <span class="font-digits text-[10px] text-gray-400">${formatTime(item.seconds, false)}</span>
+            <span class="text-[10px] text-gray-500 flex-1 truncate" title=""></span>
+            <button data-dl class="mini-btn !text-emerald-300" title="Descarga el audio tal cual se grabó">DESCARGAR .${item.ext}</button>
+            <button data-mp3 class="mini-btn !text-amber-300" title="${server.ffmpeg ? 'Convierte a MP3 320 kbps' : 'Necesitas ffmpeg (brew install ffmpeg) y reiniciar python server.py'}" ${server.ffmpeg ? '' : 'disabled'}>MP3</button>
+            <button data-tl class="mini-btn" title="Descarga la lista de temas con sus tiempos">TRACKLIST</button>`;
+        row.children[1].textContent = item.name;
+        const tl = item.tracks.map(r => `${formatTime(r.t, false)} ${r.title}`).join(' · ');
+        row.children[3].textContent = tl;
+        row.children[3].title = tl;
+        row.querySelector('[data-dl]').onclick = () => { downloadBlob(item.blob, `${item.name}.${item.ext}`); item.downloaded = true; };
+        row.querySelector('[data-mp3]').onclick = (e) => downloadRecordingMp3(item, e.currentTarget);
+        row.querySelector('[data-tl]').onclick = () => downloadBlob(new Blob([item.tracks.map(r => `${formatTime(r.t, false)}  ${r.title}`).join('\n') + '\n'], { type: 'text/plain' }), `${item.name} - tracklist.txt`);
+        list.appendChild(row);
+    });
+}
+
+/* ==========================================================================
    FRAME LOOP
    ========================================================================== */
 let lastAssist = 0;
@@ -2277,6 +2479,8 @@ function frame(nowMs) {
         if (sig !== librarySignature) { librarySignature = sig; renderLibrary(); }
         if (audioCtx) tickAutoDJ();
         Profe.tick();
+        tickRecorderTracklist();
+        if (Recorder.rec) refreshRecButton();
     }
     requestAnimationFrame(frame);
 }
@@ -2293,5 +2497,6 @@ window.addEventListener('DOMContentLoaded', () => {
     renderLibrary();
     checkServer();
     Profe.init();
+    loadLibraryFromStore();
     requestAnimationFrame(frame);
 });

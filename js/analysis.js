@@ -4,6 +4,8 @@
    recommended mix points and musical key (Camelot).
    ========================================================================== */
 const Analysis = (() => {
+    // Bump when the analysis changes: saved tracks get re-analysed in the background
+    const VERSION = 5;
     const FPS = 100;            // feature frames per second
     const FEATURE_RATE = 22050; // analysis sample rate
 
@@ -460,6 +462,7 @@ const Analysis = (() => {
         });
 
         return {
+            version: VERSION,
             bpm,
             beatSec,
             loudness: loudnessDb(buffer),
@@ -477,5 +480,5 @@ const Analysis = (() => {
         return analyzeTrack(buffer, bpm);
     }
 
-    return { FPS, analyzeTrack, simpleGrid, shiftCamelot, keyCompatibility, detectKey };
+    return { VERSION, FPS, analyzeTrack, simpleGrid, shiftCamelot, keyCompatibility, detectKey };
 })();
