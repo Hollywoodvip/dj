@@ -169,6 +169,32 @@ const Profe = (() => {
             prepare: (deck) => { deck.fx.setType('echo'); deck.fx.setBeats(0.5); refreshFxUI(deck); },
             show: (deck) => [{ id: `deck-${deck.key}-fx-on`, label: 'TOCA en el último beat' }],
         },
+        bass_cut: {
+            label: 'CORTE de bajo al drop', icon: 'fa-volume-xmark',
+            how: 'baja el LOW a −26 en el último compás antes del drop y súbelo de golpe a 0 justo en el drop: el bajo "vuelve" y pega el doble',
+            minBars: 0.3,
+            events(deck, ctx) {
+                const id = `deck-${deck.key}-eq-low`;
+                return [
+                    [ctx.pos, () => glideControl(id, -26, 150)],
+                    [ctx.nextDrop - 0.02, () => glideControl(id, 0, 0)],
+                ];
+            },
+            show: (deck) => [{ id: `deck-${deck.key}-eq-low`, label: '−26 y a 0 en el drop' }],
+        },
+        vocal_out: {
+            label: 'SIN VOZ una frase', icon: 'fa-microphone-slash',
+            how: 'apaga la VOZ (stems) durante una frase de 8 compases y vuelve a prenderla al empezar la siguiente: la gente la canta sola',
+            minBars: 0,
+            events(deck, ctx) {
+                const id = `deck-${deck.key}-stem-vocals`;
+                return [
+                    [ctx.pos, () => glideControl(id, 0, 400)],
+                    [ctx.phraseEnd - 0.02, () => glideControl(id, 1, 200)],
+                ];
+            },
+            show: (deck) => [{ id: `deck-${deck.key}-stem-vocals`, label: 'OFF una frase' }],
+        },
         reverb_space: {
             label: 'REVERB en el breakdown', icon: 'fa-cloud',
             how: 'prende REVERB (2 beats, nivel bajo) durante el breakdown y apágalo antes del drop',
@@ -755,12 +781,13 @@ const Profe = (() => {
         if (!list.length) { scrolled.clear(); return; }
         const label = document.createElement('span');
         label.className = 'text-[10px] font-bold text-emerald-300 tracking-wider mr-1';
-        label.textContent = 'TOCA:';
+        label.textContent = list.every(t => t.idea) ? 'IDEA:' : 'TOCA:';
+        if (list.every(t => t.idea)) label.className = 'text-[10px] font-bold text-violet-300 tracking-wider mr-1';
         box.appendChild(label);
         list.forEach(t => {
             const chip = document.createElement('button');
             const value = formatTarget(t).replace(' · clic', '').replace('clic', '');
-            chip.className = `px-2 py-0.5 rounded-full border text-[11px] font-bold ${t.warn ? 'border-amber-500/70 text-amber-200 bg-amber-950/50' : 'border-emerald-500/70 text-emerald-200 bg-emerald-950/50'} hover:brightness-125`;
+            chip.className = `px-2 py-0.5 rounded-full border text-[11px] font-bold ${t.warn ? 'border-amber-500/70 text-amber-200 bg-amber-950/50' : t.idea ? 'border-violet-500/70 text-violet-200 bg-violet-950/50' : 'border-emerald-500/70 text-emerald-200 bg-emerald-950/50'} hover:brightness-125`;
             chip.textContent = `${targetName(t)}${value && !/^(PLAY|PAUSA|FX ON)/.test(value) ? ' → ' + value : ''}`;
             // Musical moves say how long they take (the knob turns by itself after the click)
             if (t.glide >= 1 && autoMix && autoMix.started) chip.textContent += ` · en ${barsWord(t.glide)}`;
@@ -770,12 +797,12 @@ const Profe = (() => {
         });
         const hint = document.createElement('span');
         hint.className = 'text-[10px] text-gray-500 ml-1';
-        hint.textContent = 'clic aquí o en lo que brilla · Espacio = todo';
+        hint.textContent = list.every(t => t.idea) ? 'opcional: clic y lo hago a tiempo' : 'clic aquí o en lo que brilla · Espacio = todo';
         box.appendChild(hint);
         // If something lit is hidden (behind this bar or off screen), bring it into view once
         const bar = $('profe').getBoundingClientRect();
         for (const t of list) {
-            if (scrolled.has(t.id) || t.warn || t.id.startsWith('pad-')) continue;
+            if (scrolled.has(t.id) || t.warn || t.idea || t.id.startsWith('pad-')) continue;
             const el = $(t.id);
             if (!el) continue;
             scrolled.add(t.id);
@@ -785,10 +812,15 @@ const Profe = (() => {
         }
     }
 
-    /* ---------------- sampler: which pad, when (lit in green) ---------------- */
-    const padUsed = new Set();
+    /* ---------------- IDEAS: what you could do right now (lit in violet) ----------------
+       While a track plays alone, the profe lights ONE optional move at the right moment:
+       SUBIDA pad / FILTER before a drop, IMPACTO / bass cut on its last bar, REVERB in a
+       breakdown, ECHO on a phrase end, the voice off for a phrase (stems). Never needed,
+       never blocks anything; a click does it on the beat (and undoes it on time). */
+    const padUsed = new Set();      // "<what>:<moment>" already done / offered and taken
     let padLights = [];
     let padSig = '';
+    const lastIdeaAt = { a: -Infinity, b: -Infinity };
     function onPad(i) {
         const { live } = liveAndNext();
         if (live.analysis) { const c = context(live); if (c.nextDrop) padUsed.add(`${i}:${Math.round(c.nextDrop)}`); }
@@ -798,16 +830,38 @@ const Profe = (() => {
         const { live } = liveAndNext();
         if (enabled && mode !== 'auto' && !autoMix && audioCtx && live.isPlaying && live.analysis && audible(live) && !live.trick) {
             const c = context(live);
+            const D = live.key;
             const k = c.nextDrop ? Math.round(c.nextDrop) : null;
-            if (k !== null && c.barsToDrop <= 8 && c.barsToDrop >= 3 && !padUsed.has(`0:${k}`)) {
-                lights = [{ id: 'pad-0', label: 'termina en el drop · clic', run: () => triggerPad(0) }];
-            } else if (k !== null && c.barsToDrop <= 1.05 && c.barsToDrop > 0.15 && !padUsed.has(`1:${k}`)) {
-                lights = [{ id: 'pad-1', label: 'suena en el drop · clic', run: () => triggerPad(1, { at: c.nextDrop }) }];
+            const idea = (what, moment, t) => {
+                const key = `${what}:${moment}`;
+                if (padUsed.has(key)) return;
+                const run = t.run;
+                lights.push(Object.assign(t, {
+                    idea: true, check: () => padUsed.has(key),
+                    run: () => { padUsed.add(key); lastIdeaAt[D] = trackTime(live); run(); applyHighlights(); },
+                }));
+            };
+            const trick = (name) => () => runTrick(name, live);
+            const buildUp = c.section === 'intro' || c.section === 'breakdown';
+            if (k !== null && buildUp && c.barsToDrop <= 8 && c.barsToDrop >= 3) {
+                idea(0, k, { id: 'pad-0', label: 'termina en el drop', run: () => triggerPad(0) });
+                if (!live.fx.on) idea('filter', k, { id: `deck-${D}-filter`, label: 'SUBIDA · se suelta sola en el drop', run: trick('filter_build') });
+            } else if (k !== null && c.barsToDrop <= 1.05 && c.barsToDrop > 0.15) {
+                idea(1, k, { id: 'pad-1', label: 'suena en el drop', run: () => triggerPad(1, { at: c.nextDrop }) });
+                if (buildUp) idea('cut', k, { id: `deck-${D}-eq-low`, label: 'CORTA el bajo · vuelve en el drop', run: trick('bass_cut') });
+            } else if (c.section === 'breakdown' && !live.fx.on && c.barsToDrop > 4) {
+                idea('reverb', Math.round(c.breakdown.start), { id: `deck-${D}-fx-on`, label: 'REVERB suave en esta parte', run: trick('reverb_space') });
+            } else if (c.section === 'main' && c.barsToOut > 16 && c.pos - lastIdeaAt[D] > 16 * c.bar) {
+                const phrase = Math.round(c.phraseEnd);
+                const barsIn = 8 - c.phraseLeft;
+                if (typeof Stems !== 'undefined' && Stems.ready(live) && barsIn < 1 && +$(`deck-${D}-stem-vocals`).value > 0.5) {
+                    idea('voz', phrase, { id: `deck-${D}-stem-vocals`, label: 'SIN VOZ esta frase · vuelve sola', run: trick('vocal_out') });
+                } else if (!live.fx.on && c.phraseLeft <= 1.2 && c.phraseLeft > 0.3 && Math.round((c.pos - (live.analysis.phraseStart ?? 0)) / c.bar / 8) % 2 === 0) {
+                    idea('echo', phrase, { id: `deck-${D}-fx-on`, label: 'ECHO en el último beat', run: trick('echo_phrase') });
+                }
             }
         }
-        // Lit pads count as done once pressed
-        lights.forEach(l => { l.check = () => padUsed.has(`${l.id.slice(4)}:${Math.round((context(liveAndNext().live).nextDrop) || 0)}`); });
-        const sig = lights.map(l => l.id).join('|');
+        const sig = lights.map(l => l.id + l.label).join('|');
         padLights = lights;
         if (sig !== padSig) { padSig = sig; applyHighlights(); }
     }

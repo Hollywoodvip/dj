@@ -38,6 +38,16 @@
         }
         .jog-wheel:active { cursor: grabbing; }
         .jog-wheel.touched { border-color: #3b4252; }
+        /* Track position around the platter (red and blinking in the last 30 s, like a CDJ) */
+        .jog-ring {
+            position: absolute; inset: -8px; border-radius: 50%; pointer-events: none;
+            background: conic-gradient(var(--dc) 0 var(--p, 0deg), rgba(255,255,255,0.06) 0);
+            -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
+                    mask: radial-gradient(closest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
+            opacity: 0.85;
+        }
+        .jog-ring.ending { --dc: #ef4444; animation: jogEnding 1s steps(2, jump-none) infinite; }
+        @keyframes jogEnding { 50% { opacity: 0.35; } }
         .jog-grooves {
             position: absolute; inset: 12px; border-radius: 50%; pointer-events: none;
             background: repeating-radial-gradient(circle at center, rgba(255,255,255,0.03) 0px, rgba(255,255,255,0.03) 2px, transparent 2px, transparent 4px);
@@ -65,6 +75,16 @@
             background-color: #00f0ff; box-shadow: 0 0 5px #00f0ff;
         }
         .ch-b .knob-indicator { background-color: #ff0055; box-shadow: 0 0 5px #ff0055; }
+        /* Value arc around each knob: from 0 (top) to where it is */
+        .knob-ring {
+            position: absolute; inset: -4px; border-radius: 50%; pointer-events: none; --kc: #00f0ff;
+            background:
+                conic-gradient(from var(--ks, 0deg), var(--kc) 0 var(--kl, 0deg), transparent 0),
+                conic-gradient(from -135deg, #262b36 0 270deg, transparent 0);
+            -webkit-mask: radial-gradient(closest-side, transparent 82%, #000 85%);
+                    mask: radial-gradient(closest-side, transparent 82%, #000 85%);
+        }
+        .ch-b .knob-ring { --kc: #ff0055; }
         .knob-container:hover .knob-dial { border-color: #4b5563; }
 
         /* Sliders */
@@ -155,6 +175,10 @@
         .coach-target.coach-warn { animation: coachWarn 2s ease-in-out infinite; }
         @keyframes coachWarn { 0%, 100% { box-shadow: 0 0 0 3px rgba(245,158,11,0.95); } 50% { box-shadow: 0 0 0 5px rgba(245,158,11,0.45); } }
         .coach-target.coach-warn[data-target]::after { background: #f59e0b; color: #1c1004; }
+        /* Profe IDEAS: optional moves for this moment (violet, slower pulse) */
+        .coach-target.coach-idea { animation: coachIdea 2.6s ease-in-out infinite; }
+        @keyframes coachIdea { 0%, 100% { box-shadow: 0 0 0 3px rgba(167,139,250,0.9); } 50% { box-shadow: 0 0 0 5px rgba(167,139,250,0.35); } }
+        .coach-target.coach-idea[data-target]::after { background: #a78bfa; color: #1e1036; }
         .knob-value {
             position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 2px;
             font-size: 9px; font-weight: 700; white-space: nowrap; padding: 0 4px; border-radius: 3px;

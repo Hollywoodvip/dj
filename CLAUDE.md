@@ -100,7 +100,10 @@ merges them into `historial/` (gitignored) and publishes an orphan-style branch
 - **Genre (from the groove):** `Analysis.detectGenre(a)` folds the saved band envelopes over
   a 2-beat cell in 16ths: dembow (hit on the ¾-beat 16th) → `reggaeton`; kick on every beat
   (fourFloor) ≥ 108 BPM → `electronica`; slower / half-time → `urbano`; else `otros`
-  (synthetic dembow, hip hop, trap, house, techno, afro house all classified right). New
+  (synthetic dembow, hip hop, trap, house, techno, afro house all classified right). Tech house /
+  melodic techno put the bass on the offbeats (fourFloor ~1.8): `evenKick` (kick equally strong on
+  both beats of the cell) also counts as electrónica — the user's library showed 56/75 as "otros"
+  before. Bump `GENRE_VERSION` when detectGenre changes (saved `a.genre` is recomputed). New
   analyses store `a.genre`; old ones compute it lazily. The user can override it with the
   track's library **folder** (`entry.folder`: a genre or a custom name). Pace follows the
   genre (reggaeton/urbano fast, electronica long), BPM only as a fallback.
@@ -126,6 +129,11 @@ merges them into `historial/` (gitignored) and publishes an orphan-style branch
 - **Effects:** short doses with safe limits (`FX_LIMITS` in profe.js): echo on
   phrase ends / echo out, reverb in breakdowns, flanger / filter rise / roll /
   trans only in the build-up into a drop.
+- **Profe IDEAS (violet lights):** while a track plays alone (not AUTO, no mix armed) the profe
+  lights optional moves at the right moment (`tickPadLights` in profe.js): SUBIDA pad + FILTER rise
+  3–8 bars before a drop, IMPACTO + bass cut (`bass_cut`) on its last bar, REVERB in a breakdown,
+  ECHO on every other phrase end, voice off for a phrase (`vocal_out`, stems). `idea: true` targets:
+  a click runs the trick on the beat, Space never applies them, no auto-scroll.
 - **Beginner UX:** one click on a highlighted control glides it to its target,
   Space applies the whole step; the layout must fit a laptop screen without zooming.
   Glides are musical (`glideMsFor`): a move you can hear takes ≥ 1 bar, mix steps use

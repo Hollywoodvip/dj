@@ -25,7 +25,8 @@ function deckTemplate(k) {
         </div>`;
     const jog = `
         <div class="col-span-9 flex justify-center items-center py-1">
-            <div id="deck-${k}-jog" class="jog-wheel w-40 h-40 md:w-48 md:h-48 rounded-full">
+            <div id="deck-${k}-jog" class="jog-wheel w-40 h-40 md:w-48 md:h-48 rounded-full" style="--dc:${k === 'a' ? '#00f0ff' : '#ff0055'}">
+                <div id="deck-${k}-jog-ring" class="jog-ring" title="Cuánto va del tema (se pone rojo en los últimos 30 s)"></div>
                 <div class="jog-grooves"></div>
                 <div id="deck-${k}-jog-rotor" class="absolute inset-0 pointer-events-none">
                     <div class="absolute top-1.5 left-1/2 -translate-x-1/2 w-1.5 h-6 rounded-full bg-${c}-400" style="box-shadow:0 0 8px currentColor"></div>
@@ -139,6 +140,7 @@ function knob(id, min, max, step, def, label, labelClass = 'text-gray-400') {
             <span class="text-[9px] ${labelClass}">${label}</span>
             <div class="knob-container" title="Arrastra ↕ · rueda · doble clic = reset">
                 <input id="${id}" type="range" min="${min}" max="${max}" step="${step}" value="${def}" data-default="${def}" class="hidden">
+                <div class="knob-ring"></div>
                 <div class="knob-dial"><div class="knob-indicator"></div></div>
             </div>
         </div>`;
@@ -322,6 +324,9 @@ function setupKnob(container) {
         const v = +input.value;
         const angle = v >= def ? ((v - def) / (max - def)) * 135 : -((def - v) / (def - min)) * 135;
         dial.style.transform = `rotate(${angle}deg)`;
+        // The coloured arc from the centre (0) to the value, like a pro mixer's LED ring
+        container.style.setProperty('--ks', `${Math.min(angle, 0)}deg`);
+        container.style.setProperty('--kl', `${Math.abs(angle)}deg`);
     };
     const setValue = (v) => {
         v = Math.round(clamp(v, min, max) / step) * step;
@@ -1249,12 +1254,16 @@ function drawVU(deck) {
     const db = 20 * Math.log10(peak || 1e-6);
     const level = clamp((db + 42) / 42, 0, 1);
     deck.vuLevel = Math.max(level, (deck.vuLevel || 0) - 0.03);
-    const grad = ctx.createLinearGradient(0, h, 0, 0);
-    grad.addColorStop(0, '#10b981');
-    grad.addColorStop(0.7, '#f59e0b');
-    grad.addColorStop(1, '#ef4444');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, h - deck.vuLevel * h, w, deck.vuLevel * h);
+    // LED segments (green → amber → red) and a peak that holds for a moment
+    if (level >= (deck.vuPeak || 0)) { deck.vuPeak = level; deck.vuPeakAt = performance.now(); }
+    else if (performance.now() - (deck.vuPeakAt || 0) > 900) deck.vuPeak = Math.max(0, deck.vuPeak - 0.015);
+    const segs = 16, gap = Math.max(1, Math.round(h / 90)), sh = (h - gap * (segs - 1)) / segs;
+    const lit = Math.round(deck.vuLevel * segs), hold = Math.min(segs - 1, Math.round(deck.vuPeak * segs) - 1);
+    for (let i = 0; i < segs; i++) {
+        const color = i >= segs - 2 ? '239,68,68' : i >= segs - 5 ? '245,158,11' : '16,185,129';
+        ctx.fillStyle = `rgba(${color},${i < lit || i === hold ? 1 : 0.13})`;
+        ctx.fillRect(0, h - (i + 1) * sh - i * gap, w, sh);
+    }
 }
 
 /* ==========================================================================
@@ -1290,7 +1299,7 @@ function trackGenre(entry) {
     if (!entry) return 'otros';
     if (entry.folder && GENRES[entry.folder]) return entry.folder;
     const a = entry.analysis;
-    if (a && !a.genre && a.wave) { const g = Analysis.detectGenre(a); a.genre = g ? g.genre : 'otros'; }
+    if (a && a.wave && (!a.genre || a.genreV !== Analysis.GENRE_VERSION)) { const g = Analysis.detectGenre(a); a.genre = g ? g.genre : 'otros'; a.genreV = Analysis.GENRE_VERSION; }
     return (a && a.genre) || 'otros';
 }
 const trackFolder = (entry) => (entry && entry.folder) || trackGenre(entry);
@@ -1903,12 +1912,13 @@ function applyHighlights() {
     // One light per control: the mix plan's step wins over a profe suggestion on the same control
     const all = mixTargets.concat(typeof Profe !== 'undefined' ? Profe.targets() : [])
         .filter((t, i, list) => list.findIndex(o => o.id === t.id) === i);
-    coachEls.forEach(el => { el.classList.remove('coach-target', 'coach-warn'); delete el.dataset.target; delete el.dataset.targetValue; });
+    coachEls.forEach(el => { el.classList.remove('coach-target', 'coach-warn', 'coach-idea'); delete el.dataset.target; delete el.dataset.targetValue; });
     coachEls = all.map(t => {
         const input = $(t.id);
         const el = input.closest('.knob-container') || (input.tagName === 'INPUT' ? input.parentElement : input);
         el.classList.add('coach-target');
         el.classList.toggle('coach-warn', !!t.warn);
+        el.classList.toggle('coach-idea', !!t.idea);
         el.dataset.target = formatTarget(t) + (t.value !== undefined && !t.label ? ' · clic' : '');
         if (t.value !== undefined) el.dataset.targetValue = t.value;
         return el;
@@ -1945,12 +1955,18 @@ const glideMsFor = (id, t) => {
 function applyAllTargets() {
     ensureAudio();
     if (!currentTargets.length) { toast('No hay nada que mover ahora mismo', 'info'); return; }
-    currentTargets.forEach(applyTarget);
+    // Space = the steps you have to do (the profe's optional IDEAS only on their own click)
+    const must = currentTargets.filter(t => !t.idea);
+    if (!must.length) { toast('Nada obligatorio ahora: lo morado son ideas, clic si te gustan', 'info'); return; }
+    must.forEach(applyTarget);
 }
 function litTargetFor(el) {
     const host = el.closest('.coach-target');
-    if (!host || host.dataset.targetValue === undefined) return null;
+    if (!host) return null;
     const input = host.querySelector('input[type=range]') || el;
+    const idea = currentTargets.find(t => t.idea && t.run && t.id === input.id);
+    if (idea) return idea;
+    if (host.dataset.targetValue === undefined) return null;
     return currentTargets.find(t => t.id === input.id && t.value !== undefined) || { id: input.id, value: +host.dataset.targetValue };
 }
 
@@ -2472,7 +2488,7 @@ function fxKey(deck, phase) {
 
 function isTyping(e) {
     const t = e.target;
-    return t && (t.tagName === 'INPUT' && t.type === 'text' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+    return t && (t.tagName === 'INPUT' && ['text', 'search', 'number', 'url', ''].includes(t.type) || t.tagName === 'TEXTAREA' || t.isContentEditable);
 }
 
 function setupKeyboard() {
@@ -3046,6 +3062,15 @@ function setupGlobal() {
 
     // Buttons shouldn't keep focus (Space/Enter would re-trigger them)
     document.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) b.blur(); });
+    // A button lit as a profe IDEA (FX ON, a stem…) does the idea on the beat instead of a plain toggle
+    document.addEventListener('click', (e) => {
+        const host = e.target.closest('.coach-idea');
+        if (!host) return;
+        const t = currentTargets.find(x => x.idea && x.run && ($(x.id) === host || host.contains($(x.id))));
+        if (!t || t.id.startsWith('pad-')) return;
+        e.preventDefault(); e.stopPropagation();
+        ensureAudio(); applyTarget(t);
+    }, true);
 
     // Files
     const dropZone = $('drop-zone');
@@ -3221,6 +3246,12 @@ function frame(nowMs) {
             const status = nextMark ? `<span style="color:${nextMark.color}">${nextMark.label} en ${Math.max(1, Math.ceil((nextMark.t - pos) / (4 * a.beatSec) - 0.02))} comp.</span>`
                 : toOut > 0 ? `OUT en ${toOut} comp.` : pos < a.mixOut + barsToSec(deck, a.mixBars) ? '<span class="text-orange-400">ZONA DE SALIDA</span>' : '';
             $(`deck-${k}-phrase`).innerHTML = `${leds} <span class="ml-1">${status}</span>`;
+        }
+        if (a && deck.duration) {
+            const ring = $(`deck-${k}-jog-ring`);
+            const left = (a.musicEnd || deck.duration) - pos;
+            ring.style.setProperty('--p', `${clamp(pos / deck.duration, 0, 1) * 360}deg`);
+            ring.classList.toggle('ending', deck.isPlaying && left < 30 && left > -5);
         }
         if (deck.isPlaying) deck.jogAngle += 3 * deck.playbackRate;
         $(`deck-${k}-jog-rotor`).style.transform = `rotate(${deck.jogAngle}deg)`;

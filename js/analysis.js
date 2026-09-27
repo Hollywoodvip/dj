@@ -348,6 +348,8 @@ const Analysis = (() => {
        16ths: the dembow puts a hit on the 3rd 16th (¾ of a beat), house/techno puts the
        kick on every beat and the hat on the offbeats. Mixing depends on it: reggaeton /
        urban mix early and short, house / techno mix long in the outro. */
+    // Bump when detectGenre changes: saved genres are recomputed from the envelopes
+    const GENRE_VERSION = 2;
     function detectGenre(a) {
         if (!a || !a.wave || !a.wave[0] || !a.beatSec) return null;
         const [low, mid, high] = a.wave;
@@ -373,13 +375,18 @@ const Analysis = (() => {
         const dembow = H[3] / Math.max(1e-6, (H[1] + H[2] + H[5] + H[7]) / 4);
         // Four on the floor: the kick on the beats (0, 4) against everything else in the low band
         const fourFloor = ((L[0] + L[4]) / 2) / Math.max(1e-6, (L[1] + L[2] + L[3] + L[5] + L[6] + L[7]) / 6);
+        // Tech house / melodic techno put the bass on the offbeats: then check that the kick
+        // hits BOTH beats of the cell with the same weight (hip hop / trap only hit one)
+        const evenKick = Math.min(L[0], L[4]) / Math.max(1e-6, L[0], L[4]);
+        const onBeats = L[0] + L[4];
         const bpm = a.bpm;
         let genre = 'otros';
         if (dembow > 3 && bpm >= 78 && bpm <= 112) genre = 'reggaeton';
         else if (bpm >= 140 && dembow > 3 && fourFloor < 5) genre = 'reggaeton'; // detected at double tempo
-        else if (bpm >= 108 && fourFloor > 5) genre = 'electronica';
+        else if (bpm >= 108 && (fourFloor > 5 || (evenKick > 0.6 && onBeats > 0.3))) genre = 'electronica';
         else if (bpm < 112 || bpm >= 130) genre = 'urbano'; // hip hop, R&B, pop latino, trap (half-time kick)
-        return { genre, dembow: Math.round(dembow * 100) / 100, fourFloor: Math.round(fourFloor * 100) / 100 };
+        const r2 = (v) => Math.round(v * 100) / 100;
+        return { genre, dembow: r2(dembow), fourFloor: r2(fourFloor), evenKick: r2(evenKick), onBeats: r2(onBeats) };
     }
 
     /* ---------------- Key detection (chroma + Krumhansl profiles) ---------------- */
@@ -580,6 +587,7 @@ const Analysis = (() => {
         const a = await analyzeTrackBase(buffer, knownBpm);
         const g = detectGenre(a);
         a.genre = g ? g.genre : 'otros';
+        a.genreV = GENRE_VERSION;
         return a;
     };
 
@@ -588,5 +596,5 @@ const Analysis = (() => {
         return analyzeTrack(buffer, bpm);
     }
 
-    return { VERSION, FPS, refineOutro, detectGenre, analyzeTrack, simpleGrid, shiftCamelot, keyCompatibility, detectKey };
+    return { VERSION, GENRE_VERSION, FPS, refineOutro, detectGenre, analyzeTrack, simpleGrid, shiftCamelot, keyCompatibility, detectKey };
 })();
