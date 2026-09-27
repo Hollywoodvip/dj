@@ -1234,8 +1234,10 @@ function planTransition(live, next, now = false) {
             const diff = Math.abs(live.effectiveBpm / next.bpm - 1) * 100;
             reason = `los tempos (${live.effectiveBpm.toFixed(0)} y ${next.bpm.toFixed(0)} BPM) están a ${diff.toFixed(0)}%: para igualarlos las voces sonarían a ardilla. Se corta con eco y el ${next.id} entra a su velocidad normal`;
         } else if (compat === 0) {
-            style = 'filter';
-            reason = `las tonalidades ${liveKey} y ${nextKey} chocan: el filtro le quita cuerpo al tema que sale y la mezcla es corta`;
+            // Learned from the history: filter mixes over clashing keys got 👎 (two melodies
+            // out of tune on top of each other). A clean cut with echo sounds right
+            style = 'echo';
+            reason = `las tonalidades ${liveKey} y ${nextKey} chocan: dos melodías encima suenan desafinadas, así que mejor un corte limpio con eco`;
         } else if (la.mixBars <= 4) {
             style = 'echo';
             reason = 'el tema que suena casi no tiene outro para mezclar encima';
@@ -1262,7 +1264,11 @@ function planTransition(live, next, now = false) {
 
     // Incoming start point: the intro for blends, straight into the drop for an echo out
     const introBars = (na.introEnd - na.mixIn) / (4 * next.beatSec);
-    const useDrop = style === 'echo' && introBars >= 4 && na.introEnd < next.duration - 30;
+    // Echo out into the drop only if the old track is loud where you cut; from a quiet
+    // outro the drop was a +10 dB jump (history: every echo out warned "subió mucho")
+    const outBar = Math.round((target - la.downbeat) / barOut);
+    const outNow = la.bars && la.bars.length ? la.bars.slice(Math.max(0, outBar - 4), Math.max(1, outBar)).reduce((s, v, i, arr) => s + v / arr.length, 0) : 1;
+    const useDrop = style === 'echo' && introBars >= 4 && na.introEnd < next.duration - 30 && outNow >= 0.6;
     // Blends: start the incoming track exactly `bars` bars before its drop, so the
     // drop lands right when the mix ends (that's what makes a transition hit)
     const barIn = 4 * next.beatSec;
@@ -1308,7 +1314,7 @@ function planTransition(live, next, now = false) {
         step(bars - (bars >= 8 ? 4 : 2), `Opcional: pad SUBIDA del sampler, termina solo justo en el drop del ${LB}`, [{ type: 'pad', pad: 0, bar: bars }]);
         step(bars - 0.5, `Opcional: pad IMPACTO, suena justo en el drop del ${LB}`, [{ type: 'pad', pad: 1, bar: bars }]);
     };
-    const endFx = style === 'blend' && pace !== 'fast' ? { fx: 'reverb', beats: 2, level: 0.45 } : { fx: 'echo', beats: 0.5, level: style === 'echo' ? 0.7 : 0.55 };
+    const endFx = style === 'blend' && pace !== 'fast' ? { fx: 'reverb', beats: 2, level: 0.45 } : { fx: 'echo', beats: 0.5, level: style === 'echo' ? 0.6 : 0.5 };
 
     /* ---------- PREPARATION (right after loading the track, one thing at a time) ---------- */
     let order = 0;
@@ -1763,6 +1769,12 @@ function finishAutoMix(early = false) {
     refreshDeckButtons(inc);
     autoMix = null;
     lastMixDone = { out, in: inc, at: performance.now(), early };
+    // Guided: nothing moves by itself, but if you ended early the new track may still have
+    // its knobs cut (thin and quiet: -17 dB in the history): light them to go back to 0
+    afterMixTargets = m.mode === 'guide'
+        ? ['low', 'mid', 'high'].map(b => `deck-${inc.key}-eq-${b}`).concat([`deck-${inc.key}-filter`])
+            .filter(id => Math.abs(+$(id).value) > 1).map(id => ({ id, value: 0, glide: 1 }))
+        : [];
     out.freshLoad = false;
     inc.freshLoad = false;
     setCoachTargets([]);
@@ -2931,6 +2943,13 @@ function renderRecordings() {
    ========================================================================== */
 let lastAssist = 0;
 let librarySignature = '';
+let afterMixTargets = [];
+function tickAfterMixTargets() {
+    if (autoMix || !afterMixTargets.length) return;
+    const left = afterMixTargets.filter(t => !targetReached(t));
+    if (left.length !== afterMixTargets.length || mixTargets !== afterMixTargets) { afterMixTargets = left; setCoachTargets(left); }
+}
+
 function frame(nowMs) {
     $('master-clock').innerText = new Date().toTimeString().split(' ')[0];
     if (audioCtx) {
@@ -2938,6 +2957,7 @@ function frame(nowMs) {
         tickPitchReturn(nowMs);
         deckList.forEach(d => d.tick(nowMs));
         tickAutoMix();
+        tickAfterMixTargets();
         Profe.tickTricks();
     }
     deckList.forEach(deck => {

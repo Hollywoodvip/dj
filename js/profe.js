@@ -268,8 +268,9 @@ const Profe = (() => {
         // Right after a mix: how everything should be left
         if (!autoMix && lastMixDone && performance.now() - lastMixDone.at < 15000) {
             const { out, in: inc } = lastMixDone;
+            const cut = typeof afterMixTargets !== 'undefined' && afterMixTargets.length;
             add({ id: `after-mix-${Math.round(lastMixDone.at)}`, p: 96, icon: 'fa-flag-checkered', title: '¡Mezcla lista!',
-                text: `Así queda: Deck ${out.id} en pausa con sus perillas en 0, crossfader del lado ${inc.id}. Ahora suena el ${inc.id} (su pitch vuelve a 0% de a poco). Siguiente paso: carga otro tema en el ${out.id}.`,
+                text: `${cut ? `Ojo: el ${inc.id} todavía tiene perillas cortadas y suena flaco: súbelas a 0 (brillan, o Espacio). ` : ''}Así queda: Deck ${out.id} en pausa con sus perillas en 0, crossfader del lado ${inc.id}. Ahora suena el ${inc.id} (su pitch vuelve a 0% de a poco). Siguiente paso: carga otro tema en el ${out.id}.`,
                 actions: [
                     { label: 'Sonó bien', icon: 'fa-thumbs-up', kind: 'auto', run: () => Historial.rateLast('good') },
                     { label: 'Sonó mal', icon: 'fa-thumbs-down', kind: 'show', run: () => Historial.rateLast('bad') },

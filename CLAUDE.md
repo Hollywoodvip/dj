@@ -32,6 +32,12 @@ merges them into `historial/` (gitignored) and publishes an orphan-style branch
   energy-based outro sat at the very end (65/66 tracks got mixBars 8, mixes shrank to 4
   bars, the user came in 58 bars before the "ideal" point) → analysis v6 `refineOutro`
   (lead = mids + highs). Live edits / visualizers have no DJ outro: ≥16 bars are kept.
+- Round 2 (11 mixes, 3 👎): the user enters ~55–79 bars before the "ideal" point (mixes
+  mid-track, 15–35 s transitions); both filter mixes over clashing keys got 👎 → clashing
+  keys now = echo out; every echo out jumped +10 dB (quiet outro straight into the drop)
+  → the drop is used only if the old track is loud where you cut, echo level 0.6; ending
+  early left the new track EQ-cut (−17 dB) → `afterMixTargets` lights its knobs to 0.
+  Mix logs now carry `analysisVersion` (compare v6+ mixes only when tuning the ideal point).
 - `mixes.json`: per mix, the plan (style, pace, bars, dropAtEnd, introLoop…), `startedBarsFromIdeal`,
   master level range vs the track alone, warnings shown, `result` (done/early/cancelled) and
   the user's `rating` (good/bad). No audio is ever uploaded.

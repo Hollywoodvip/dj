@@ -23,7 +23,7 @@ const Historial = (() => {
     // A mix starts being recorded when the profe arms it
     function mixStarted(m) {
         m.log = {
-            at: new Date().toISOString(), mode: m.mode,
+            at: new Date().toISOString(), mode: m.mode, analysisVersion: Analysis.VERSION,
             out: trackInfo(m.out), in: trackInfo(m.in),
             plan: {
                 style: m.plan.style, pace: m.plan.pace, bars: m.plan.bars, synced: m.plan.synced, rate: r3(m.plan.rate),
