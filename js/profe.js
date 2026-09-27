@@ -246,7 +246,11 @@ const Profe = (() => {
         if (autoMix && autoMix.mode === 'guide') {
             const pending = autoMix.plan.steps.filter(s => s.fired && s.pending && s.pending.length).slice(-1)[0];
             const nextStep = autoMix.plan.steps.find(s => !s.fired);
-            if (pending) add({ id: `guide-now-${pending.prep ? 'prep' : 'mix'}`, p: 99, icon: pending.prep ? 'fa-list-check' : 'fa-hand-point-right',
+            const ready = pending && !pending.prep && !autoMix.started && pending.actions.some(a => a.type === 'startIn');
+            if (ready) add({ id: 'guide-ready', p: 99, icon: 'fa-play', title: `¡LISTO! Entra con el ${autoMix.in.id} cuando quieras`,
+                text: `Todo preparado. Dale PLAY al ${autoMix.in.id} cuando quieras: entra justo en el compás. El momento ideal es cuando el contador llegue a 0 (${formatTime(autoMix.target, false)} del ${autoMix.out.id}), pero puedes entrar antes si la gente ya quiere cambio.`,
+                when: () => (autoMix && !autoMix.started ? `momento ideal en ${barsText(Math.max(0, -mixBarPosition(autoMix)))}` : '') });
+            else if (pending) add({ id: `guide-now-${pending.prep ? 'prep' : 'mix'}`, p: 99, icon: pending.prep ? 'fa-list-check' : 'fa-hand-point-right',
                 title: pending.prep ? `PREPARA EL ${autoMix.in.id}` : autoMix.waiting ? 'Te espero' : 'AHORA',
                 text: pending.text + '.' + (autoMix.waiting ? ' Te espero: el plan no avanza hasta que lo hagas.' : ''),
                 when: () => (autoMix && !autoMix.started ? `el cambio empieza en ${barsText(Math.max(0, -mixBarPosition(autoMix)))}` : '') });
@@ -583,7 +587,8 @@ const Profe = (() => {
         if (mode === 'tips' || autoMix || !audioCtx) return;
         const { live, next } = liveAndNext();
         if (!live.isPlaying || !live.analysis || !next.analysis || next.isPlaying) return;
-        if (next.track && next.track.played) return;
+        // Any track you load into the free deck is "the next one" (until it's mixed in)
+        if (!next.freshLoad) return;
         const key = pairKey(live, next);
         if (refused.has(key)) return;
         const ctx = context(live);

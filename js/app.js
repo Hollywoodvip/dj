@@ -391,6 +391,15 @@ async function loadLibraryFromStore() {
     try { records = await Store.all(); } catch (e) { console.warn('Library storage unavailable', e); return; }
     records.sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));
     records.forEach(r => {
+        // Fix BPMs pushed out of range with ×2 / ½ (e.g. 976 instead of 122)
+        const a = r.analysis;
+        if (a && (a.bpm > 200 || a.bpm < 60)) {
+            while (a.bpm > 200) a.bpm /= 2;
+            while (a.bpm < 60) a.bpm *= 2;
+            a.beatSec = 60 / a.bpm;
+            delete a.fastOut;
+            Store.put(r).catch(() => {});
+        }
         library.push({ ...r, played: false });
         libraryId = Math.max(libraryId, r.id);
     });
@@ -547,6 +556,7 @@ function resetChannel(deck, ms = 250) {
 
 function onDeckLoaded(deck) {
     const k = deck.key;
+    deck.freshLoad = !deck.isPlaying; // the profe prepares it as the next track
     if (!deck.isPlaying) {
         // A fresh track starts clean: knobs at 0, no effect running
         resetChannel(deck, 0);
@@ -709,6 +719,7 @@ function setTrackBpm(deck, bpm, anchor = null) {
     const a = deck.analysis;
     if (!a) return;
     bpm = Math.round(bpm * 10) / 10;
+    if (bpm < 60 || bpm > 200) { toast(`${bpm.toFixed(0)} BPM no tiene sentido para mezclar (entre 60 y 200)`, 'warn'); return; }
     a.bpm = bpm;
     a.beatSec = 60 / bpm;
     if (anchor !== null) {
@@ -1449,6 +1460,8 @@ function finishAutoMix(early = false) {
     refreshDeckButtons(inc);
     autoMix = null;
     lastMixDone = { out, in: inc, at: performance.now(), early };
+    out.freshLoad = false;
+    inc.freshLoad = false;
     setCoachTargets([]);
     // The DJ PROFE explains how everything is left; without it, a short toast
     if (typeof Profe === 'undefined' || Profe.mode() === 'off') toast(`Mezcla completa: ahora suena el Deck ${inc.id}`, 'ok');
@@ -1545,9 +1558,11 @@ function tickAutoMix() {
         }
         if (s.fired) continue;
         const isStart = s.actions.some(a => a.type === 'startIn');
-        // In guided mode the PLAY lights up one bar early so you can get ready
+        // Guided: once the preparation is done, PLAY lights up right away (come in whenever
+        // you want, it's quantized); otherwise it lights one bar before the ideal moment
         const at = isStart && m.mode === 'guide' ? s.at - (plan.style === 'echo' ? 0.5 : 1) : s.at;
-        if (barPos < at) continue;
+        const prepDone = plan.steps.every(p => !p.prep || (p.fired && !(p.pending || []).some(t => !targetReached(t))));
+        if (barPos < at && !(isStart && m.mode === 'guide' && prepDone)) continue;
         if (s.at >= 0 && !m.started && !(isStart && m.mode === 'guide')) continue;
         fireStep(m, s);
     }

@@ -60,8 +60,12 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
 - **Guided mix = the user does everything:** a preparation phase starts as soon
   as the next track is loaded (crossfader side, cue point, tempo, EQ, choose the
   end effect), one lit step at a time; then PLAY lights up and is quantized to
-  the bar (early/late presses land exactly on the beat). Nothing moves by itself
+  the bar (early/late presses land exactly on the beat). Any track loaded into
+  the free deck arms it (`deck.freshLoad`), even if it played earlier. Once the
+  preparation is done PLAY is available right away ("entra cuando quieras"); the
+  ideal moment is only a recommendation with a countdown. Nothing moves by itself
   in guided mode; AUTO mode does the same steps by itself.
+- **BPM sanity:** only 60–200 BPM; ×2/½ can't go outside it, saved tracks out of range are fixed on load.
 - **Beat FX are post-crossfader** (like a DJM): echo/reverb trails survive a cut.
 - **Guided mode waits for the user:** the plan's clock stops while something is
   lit up (only the incoming track's start is automatic, it must be on the beat).
