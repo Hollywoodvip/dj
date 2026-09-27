@@ -6,12 +6,17 @@ extractor powered by [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 
 ## Run it
 
-Needs Python 3.9+.
+Needs Python 3.9+. On macOS use `python3` (plain `python`/`pip` don't exist there):
 
 ```bash
+cd dj
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 python server.py
 ```
+
+Next time you only need `cd dj && source .venv/bin/activate && python server.py`.
 
 Open **http://localhost:8000**, click **Start Audio Engine**, paste a YouTube
 link and press **Extract Audio**. When it finishes, send the track to Deck A or B.
