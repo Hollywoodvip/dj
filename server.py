@@ -20,7 +20,9 @@ import mimetypes
 import os
 import re
 import shutil
+import subprocess
 import sys
+import time
 import tempfile
 import urllib.parse
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -110,6 +112,24 @@ def download_audio(url, workdir, as_mp3=False):
     return os.path.join(workdir, files[0]), info
 
 
+def app_version():
+    """Last commit (hash + date) so the page can show which version is running."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", ROOT, "log", "-1", "--format=%h · %cd", "--date=format:%d/%m %H:%M"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    newest = max(os.path.getmtime(os.path.join(ROOT, "js", f)) for f in os.listdir(os.path.join(ROOT, "js")))
+    return time.strftime("%d/%m %H:%M", time.localtime(newest))
+
+
+SCRIPT_TAG = re.compile(r'src="(js/[\w.-]+\.js)"')
+
+
 class DJHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=ROOT, **kwargs)
@@ -123,10 +143,31 @@ class DJHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/status":
-            return self.send_json(200, {"ok": True, "ytdlp": yt_dlp is not None, "ffmpeg": HAS_FFMPEG})
+            return self.send_json(200, {"ok": True, "ytdlp": yt_dlp is not None, "ffmpeg": HAS_FFMPEG, "version": app_version()})
+        if parsed.path in ("/", "/index.html"):
+            return self.send_index()
         if parsed.path == "/api/convert":
             return self.handle_convert(urllib.parse.parse_qs(parsed.query))
         return super().do_GET()
+
+    def send_index(self):
+        # Stamp every script with its modification time: after a `git pull` the
+        # browser has to load the new files instead of a cached copy
+        with open(os.path.join(ROOT, "index.html"), encoding="utf-8") as f:
+            html = f.read()
+
+        def stamp(match):
+            path = os.path.join(ROOT, match.group(1))
+            mtime = int(os.path.getmtime(path)) if os.path.exists(path) else 0
+            return f'src="{match.group(1)}?v={mtime}"'
+
+        body = SCRIPT_TAG.sub(stamp, html).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
 
     def handle_convert(self, query):
         url = (query.get("url") or [""])[0].strip()
@@ -202,7 +243,7 @@ def main():
             sys.exit(1)
         raise
     shown = "localhost" if args.host in ("127.0.0.1", "0.0.0.0") else args.host
-    print(f"WebDJ Pro running at http://{shown}:{args.port}  (Ctrl+C to stop)")
+    print(f"WebDJ Pro (version {app_version()}) running at http://{shown}:{args.port}  (Ctrl+C to stop)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

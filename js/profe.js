@@ -66,7 +66,7 @@ const Profe = (() => {
         const nextDrop = drops.filter(t => t > pos + 0.05).sort((x, y) => x - y)[0];
         const breakdown = a.breakdowns.find(b => pos >= b.start && pos < b.end);
         const section = pos < a.introEnd ? 'intro' : breakdown ? 'breakdown' : pos >= a.outroStart ? 'outro' : 'main';
-        const barsIn = (pos - a.downbeat) / bar;
+        const barsIn = (pos - (a.phraseStart ?? a.downbeat)) / bar;
         const phraseLeft = 8 - (((barsIn % 8) + 8) % 8);
         return {
             pos, bar, section, breakdown,
@@ -587,7 +587,8 @@ const Profe = (() => {
             try { localStorage.setItem('webdj-profe', enabled ? '1' : '0'); } catch (e) {}
             render(true);
         });
-        try { mode = localStorage.getItem('webdj-profe-mode') || 'tips'; } catch (e) {}
+        // Default: GUIADO (the user prefers being guided with lights)
+        try { mode = localStorage.getItem('webdj-profe-mode') || 'guide'; } catch (e) { mode = 'guide'; }
         document.querySelectorAll('[data-profemode]').forEach(b => {
             b.classList.toggle('mini-btn-on', b.dataset.profemode === mode);
             b.addEventListener('click', () => setMode(b.dataset.profemode));

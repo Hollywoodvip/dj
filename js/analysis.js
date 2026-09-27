@@ -187,7 +187,30 @@ const Analysis = (() => {
         return p;
     }
 
-    function analyzeStructure(energyFrames, downbeat, beatSec, duration) {
+    // Is there an actual beat in each bar? YouTube videos often open (or close) with
+    // talking, skits or ambience: sound, but nothing you can mix over. A real groove
+    // repeats every beat, so the onset envelope correlates with itself one beat later.
+    function rhythmPerBar(onset, downbeat, beatSec, duration) {
+        const barSec = beatSec * 4;
+        const lag = Math.round(beatSec * FPS);
+        const scores = [];
+        for (let t = downbeat; t + barSec <= duration + 0.01; t += barSec) {
+            const a = Math.max(0, Math.floor(t * FPS));
+            const b = Math.min(onset.length - lag - 2, Math.floor((t + barSec) * FPS));
+            let num = 0, den = 0;
+            for (let f = a; f < b; f++) {
+                const o = onset[f];
+                if (!o) continue;
+                const later = Math.max(onset[f + lag - 1], onset[f + lag], onset[f + lag + 1]);
+                num += o * later;
+                den += o * o;
+            }
+            scores.push(den > 0 ? num / den : 0);
+        }
+        return scores;
+    }
+
+    function analyzeStructure(energyFrames, downbeat, beatSec, duration, rhythm = null) {
         const barSec = beatSec * 4;
         const bars = [];
         for (let t = downbeat; t + barSec <= duration + 0.01; t += barSec) {
@@ -199,28 +222,35 @@ const Analysis = (() => {
         }
         const totalBars = bars.length;
         if (totalBars < 8) {
-            return { bars: [], mixIn: downbeat, introEnd: downbeat, outroStart: duration, mixOut: Math.max(downbeat, duration - barSec * 4), mixBars: 4, breakdowns: [] };
+            return { bars: [], mixIn: downbeat, introEnd: downbeat, outroStart: duration, mixOut: Math.max(downbeat, duration - barSec * 4), mixBars: 4, breakdowns: [], phraseStart: downbeat, musicEnd: duration };
         }
         const ref = percentile(bars, 0.9);
         const norm = bars.map(v => Math.min(1, v / ref));
 
         const HIGH = 0.72;
-        const firstSound = Math.max(0, norm.findIndex(v => v > 0.08));
-        let introEndBar = norm.findIndex(v => v >= HIGH);
-        if (introEndBar < 0) introEndBar = 0;
-        let lastHigh = totalBars - 1;
-        while (lastHigh > 0 && norm[lastHigh] < HIGH) lastHigh--;
+        // A bar is "music" when it has some level AND a repeating beat
+        const beat = (i) => !rhythm || (rhythm[i] || 0) >= 0.3;
+        const music = norm.map((v, i) => v > 0.08 && beat(i));
+        const steady = (i) => music[i] && music[i + 1] && (music[i + 2] || music[i + 3]);
+        let firstMusic = 0;
+        while (firstMusic < totalBars - 8 && !steady(firstMusic)) firstMusic++;
+        let lastMusic = totalBars - 1;
+        while (lastMusic > firstMusic + 8 && !(music[lastMusic] && music[lastMusic - 1] && (music[lastMusic - 2] || music[lastMusic - 3]))) lastMusic--;
+
+        const firstSound = firstMusic;
+        let introEndBar = norm.findIndex((v, i) => i >= firstMusic && v >= HIGH);
+        if (introEndBar < 0) introEndBar = firstMusic;
+        let lastHigh = Math.min(totalBars, lastMusic + 1) - 1;
+        while (lastHigh > firstMusic && norm[lastHigh] < HIGH) lastHigh--;
         let outroStartBar = lastHigh + 1;
 
-        const snap = (bar) => Math.round(bar / 8) * 8;
-        const lastUsableBar = (() => {
-            let i = totalBars - 1;
-            while (i > 0 && norm[i] < 0.08) i--;
-            return i + 1;
-        })();
+        // Phrases (8 bars) are counted from where the music starts, not from 0:00
+        const snap = (bar) => firstMusic + Math.round((bar - firstMusic) / 8) * 8;
+        const lastUsableBar = lastMusic + 1;
 
         // Mix out on a phrase boundary, leaving room for at least 8 bars
         let mixOutBar = snap(outroStartBar);
+        if (mixOutBar > lastUsableBar) mixOutBar = snap(lastUsableBar - 8);
         while (lastUsableBar - mixOutBar < 8 && mixOutBar - 8 >= introEndBar) mixOutBar -= 8;
         let mixBars = lastUsableBar - mixOutBar;
         mixBars = mixBars >= 32 ? 32 : mixBars >= 16 ? 16 : mixBars >= 8 ? 8 : Math.max(4, mixBars);
@@ -240,6 +270,8 @@ const Analysis = (() => {
         return {
             bars: norm,
             mixIn: Math.max(0, downbeat + firstSound * barSec),
+            phraseStart: downbeat + firstMusic * barSec,
+            musicEnd: downbeat + lastUsableBar * barSec,
             introEnd: downbeat + introEndBar * barSec,
             outroStart: downbeat + outroStartBar * barSec,
             mixOut: downbeat + mixOutBar * barSec,
@@ -416,7 +448,8 @@ const Analysis = (() => {
         let downbeat = firstBeat + p * beatSec;
         while (downbeat - 4 * beatSec >= -EARLY) downbeat -= 4 * beatSec;
 
-        const structure = analyzeStructure(energy, downbeat, beatSec, buffer.duration);
+        const rhythm = rhythmPerBar(onset, downbeat, beatSec, buffer.duration);
+        const structure = analyzeStructure(energy, downbeat, beatSec, buffer.duration, rhythm);
         let key = null;
         try { key = await detectKey(buffer); } catch (e) { key = null; }
 

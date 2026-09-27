@@ -646,6 +646,7 @@ function setTrackBpm(deck, bpm, anchor = null) {
         a.downbeat = a.firstBeat;
     }
     deck.bpm = bpm;
+    delete a.fastOut;
     const other = otherDeck(deck);
     if (other.syncOn) matchTempo(other, deck);
     if (deck.syncOn) matchTempo(deck, other);
@@ -814,7 +815,8 @@ function drawOverview(deck) {
 
     // phrase ticks (every 8 bars)
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    for (let t = a.downbeat; t < dur; t += a.beatSec * 32) ctx.fillRect(Math.round(X(t)), h - 4, 1, 4);
+    const ps = a.phraseStart ?? a.downbeat;
+    for (let t = ps; t < dur; t += a.beatSec * 32) ctx.fillRect(Math.round(X(t)), h - 4, 1, 4);
 
     const pos = deck.getCurrentTime();
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -878,7 +880,7 @@ function drawZoom(deck) {
     }
 
     // Beat grid: beats, bars (brighter), phrases (red)
-    const d0 = Math.round((a.downbeat - a.firstBeat) / a.beatSec);
+    const d0 = Math.round(((a.phraseStart ?? a.downbeat) - a.firstBeat) / a.beatSec);
     const k0 = Math.ceil((start - a.firstBeat) / a.beatSec);
     for (let k = k0; ; k++) {
         const t = a.firstBeat + k * a.beatSec;
@@ -966,7 +968,8 @@ function fastOutPoint(a) {
     const end = Math.max(start, Math.min(a.mixOut - 8 * bar, a.mixIn + 110));
     let best = a.mixOut, bestScore = -Infinity;
     const avg = (i0, i1) => { let s = 0, n = 0; for (let i = Math.max(0, i0); i < Math.min(a.bars.length, i1); i++) { s += a.bars[i]; n++; } return n ? s / n : 0; };
-    for (let t = a.downbeat + Math.ceil((start - a.downbeat) / phrase - 1e-6) * phrase; t <= end + 0.01; t += phrase) {
+    const ps = a.phraseStart ?? a.downbeat;
+    for (let t = ps + Math.ceil((start - ps) / phrase - 1e-6) * phrase; t <= end + 0.01; t += phrase) {
         const i = Math.round((t - a.downbeat) / bar);
         const score = (avg(i - 4, i) - avg(i, i + 4)) - (t - start) / 400;
         if (score > bestScore) { bestScore = score; best = t; }
@@ -984,7 +987,8 @@ function outPoint(deck) {
     if (pos < fast - 2 * 4 * a.beatSec) return fast;
     // Missed it: next phrase start (at least 2 bars away), never after the normal outro
     const phrase = 32 * a.beatSec;
-    const next = a.downbeat + Math.ceil((pos + 8 * a.beatSec - a.downbeat) / phrase) * phrase;
+    const ps = a.phraseStart ?? a.downbeat;
+    const next = ps + Math.ceil((pos + 8 * a.beatSec - ps) / phrase) * phrase;
     return Math.min(next, a.mixOut);
 }
 
@@ -1055,7 +1059,7 @@ function planTransition(live, next, now = false) {
     if (!useDrop && introBars >= 2) {
         const ideal = na.introEnd - bars * barIn;
         if (ideal >= na.mixIn - 0.05) {
-            inStart = Math.max(0, na.downbeat + Math.round((ideal - na.downbeat) / barIn) * barIn);
+            inStart = Math.max(na.mixIn, na.downbeat + Math.round((ideal - na.downbeat) / barIn) * barIn);
             dropAtEnd = true;
         } else {
             // Intro shorter than the mix: the drop comes in partway through
@@ -1758,6 +1762,7 @@ async function checkServer() {
         const data = await res.json();
         server.online = !!data.ytdlp;
         server.ffmpeg = !!data.ffmpeg;
+        if (data.version) $('app-version').textContent = `v ${data.version}`;
         status.title = server.online
             ? 'Conversor listo: pega un link, extrae el audio y cárgalo en un deck'
             : 'El servidor corre pero falta yt-dlp: pip install -r requirements.txt';
@@ -2141,10 +2146,10 @@ function frame(nowMs) {
             const keyEl = $(`deck-${k}-key`);
             keyEl.innerText = !key ? 'KEY --' : key === a.key.camelot ? `${key} · ${a.key.name}` : `${key} (orig ${a.key.camelot})`;
             keyEl.title = key && key !== a.key.camelot ? 'El pitch cambió la tonalidad (sin key lock)' : 'Tonalidad (Camelot)';
-            const beatIdx = Math.floor((pos - a.downbeat) / a.beatSec + 1e-3);
+            const beatIdx = Math.floor((pos - (a.phraseStart ?? a.downbeat)) / a.beatSec + 1e-3);
             const bar = Math.floor(beatIdx / 4) + 1;
             const beat = ((beatIdx % 4) + 4) % 4 + 1;
-            $(`deck-${k}-jog-beat`).innerText = pos < a.downbeat ? '-.-' : `${bar}.${beat}`;
+            $(`deck-${k}-jog-beat`).innerText = pos < (a.phraseStart ?? a.downbeat) - 0.05 ? '-.-' : `${bar}.${beat}`;
             const toOut = Math.ceil((outPoint(deck) - pos) / (4 * a.beatSec));
             const leds = [1, 2, 3, 4].map(i => `<span style="color:${i === beat && deck.isPlaying ? (i === 1 ? '#ef4444' : '#e5e7eb') : '#374151'}">■</span>`).join('');
             $(`deck-${k}-phrase`).innerHTML = `${leds} <span class="ml-1">${toOut > 0 ? `OUT en ${toOut} comp.` : pos < a.mixOut + barsToSec(deck, a.mixBars) ? '<span class="text-orange-400">ZONA DE SALIDA</span>' : ''}</span>`;

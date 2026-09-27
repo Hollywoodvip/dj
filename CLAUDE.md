@@ -7,6 +7,9 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
 
 ## Run / test
 - `python server.py` → http://localhost:8000 (serves the app, `/api/status`, `/api/convert`).
+  `index.html` is served with `?v=<mtime>` on every script and the version (last
+  commit) shows next to the logo: if the user reports old behaviour, check that
+  version first (they may not have pulled / restarted).
 - No test suite. Verify changes headlessly with Playwright + Chromium
   (`executablePath: '/opt/pw-browsers/chromium'`); stub `download_audio` in
   `server.py` to test the converter without YouTube (YouTube is blocked in the
@@ -35,7 +38,10 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
 - **Pace:** reggaeton/latin/hip-hop (< 112 BPM) mix *early*: at a phrase boundary
   after ~1 min where the energy drops (end of a chorus), 8-bar transitions.
   House/techno mix in the outro, 16–32 bars.
-- **Phrasing:** everything happens on 8-bar phrases; the incoming track starts
+- **YouTube videos:** many open/close with talking, skits or ambience. Only bars
+  with a repeating beat count as music (`rhythmPerBar`): `mixIn`/`phraseStart`
+  = where the groove starts, `musicEnd` = where it ends. Never mix over the talking.
+- **Phrasing:** everything happens on 8-bar phrases counted from `phraseStart`; the incoming track starts
   exactly N bars before its drop so the drop lands when the transition ends.
 - **EQ:** never two basslines at once (bass swap halfway); swap the mids too
   (vocals); knobs go back to 0 after a mix; boosting over 0 saturates.
