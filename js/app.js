@@ -167,7 +167,10 @@ function mixerTemplate() {
             <div class="flex justify-between text-[10px] font-bold mb-1">
                 <span class="text-cyan-400">A</span><span class="text-gray-400">CROSSFADER</span><span class="text-rose-400">B</span>
             </div>
-            <input id="crossfader" type="range" min="-1" max="1" step="0.01" value="0" class="w-full" title="← → en el teclado · doble clic = centro">
+            <div class="relative">
+                <input id="crossfader" type="range" min="-1" max="1" step="0.01" value="0" class="w-full" title="← → en el teclado · doble clic = centro">
+                <div id="xf-plan" class="xf-plan hidden" title="Dónde debería estar el crossfader ahora según el plan de la mezcla"></div>
+            </div>
         </div>`;
 }
 
@@ -899,6 +902,59 @@ function marker(ctx, x, h, color, label, top = true) {
     }
 }
 
+/* ---------- The mix map: where the plan does each thing, drawn on the waveforms ---------- */
+// For the outgoing deck: track positions of "B comes in", "bass swap", "all on B", "pause".
+// For the incoming deck: the stretch of it that plays during the mix.
+function mixMap(deck) {
+    const m = autoMix;
+    if (!m || !deck.analysis) return null;
+    const { plan } = m;
+    if (deck === m.out) {
+        const bar = 4 * deck.beatSec;
+        const now = deck.getCurrentTime();
+        const bp = mixBarPosition(m);
+        const at = (b) => now + (b - bp) * bar;
+        const I = m.in.id, O = m.out.id;
+        const marks = [];
+        plan.steps.forEach(st => {
+            if (st.prep) return;
+            st.actions.forEach(a => {
+                if (a.type === 'startIn') marks.push({ t: at(st.at), label: `ENTRA ${I}`, color: '#10b981' });
+                else if (a.type === 'set' && a.id === 'crossfader' && a.value === plan.xIn) marks.push({ t: at(st.at), label: `TODO AL ${I}`, color: '#22d3ee' });
+                else if (a.type === 'set' && a.id === `deck-${m.out.key}-eq-low` && a.value < -20) marks.push({ t: at(st.at), label: 'BAJOS', color: '#f59e0b' });
+                else if (a.type === 'fx') marks.push({ t: at(st.at), label: 'FX', color: '#a78bfa' });
+                else if (a.type === 'pauseOut') marks.push({ t: at(st.at), label: `PAUSA ${O}`, color: '#f43f5e' });
+            });
+        });
+        const ends = marks.map(k => k.t);
+        return { from: at(0), to: Math.max(...ends), marks };
+    }
+    if (deck === m.in) {
+        const from = plan.inStart;
+        return { from, to: from + plan.bars * 4 * deck.beatSec, marks: [{ t: from, label: `ENTRA AQUÍ`, color: '#10b981' }] };
+    }
+    return null;
+}
+
+// Where the crossfader should be right now according to the plan
+function planCrossfader(m) {
+    const bp = mixBarPosition(m);
+    let x = m.plan.xOut;
+    m.plan.steps.filter(s => !s.prep).sort((p, q) => p.at - q.at).forEach(s => s.actions.forEach(a => {
+        if (a.type !== 'set' || a.id !== 'crossfader') return;
+        const g = Math.max(0.01, a.glide || 0.01);
+        if (bp >= s.at + g) x = a.value;
+        else if (bp > s.at) x = x + (a.value - x) * (bp - s.at) / g;
+    }));
+    return x;
+}
+function renderPlanCrossfader() {
+    const el = $('xf-plan');
+    const show = !!autoMix;
+    el.classList.toggle('hidden', !show);
+    if (show) el.style.left = `calc(${((planCrossfader(autoMix) + 1) / 2 * 100).toFixed(1)}% - 1px)`;
+}
+
 function drawOverview(deck) {
     const canvas = $(`deck-${deck.key}-overview`);
     if (sizeCanvas(canvas)) buildOverviewCache(deck);
@@ -936,6 +992,12 @@ function drawOverview(deck) {
     ctx.fillStyle = 'rgba(249,115,22,0.25)';
     ctx.fillRect(X(a.mixOut), h - 3, X(Math.min(dur, a.mixOut + a.mixBars * 4 * a.beatSec)) - X(a.mixOut), 3);
     [1, 2, 3].forEach(n => { if (deck.hotCues[n] !== null) marker(ctx, X(deck.hotCues[n]), h, HOTCUE_COLORS[n], String(n), false); });
+    const map = mixMap(deck);
+    if (map) {
+        ctx.fillStyle = 'rgba(16,185,129,0.28)';
+        ctx.fillRect(X(map.from), 0, Math.max(2, X(map.to) - X(map.from)), h);
+        marker(ctx, X(map.from), h, '#10b981', 'MEZCLA');
+    }
     ctx.fillStyle = '#fff';
     ctx.fillRect(Math.round(X(pos)) - 1, 0, 2, h);
 }
@@ -1005,6 +1067,12 @@ function drawZoom(deck) {
     if (resolvedPace(deck) === 'fast') { const f = outPoint(deck); if (inView(f) && Math.abs(f - a.mixOut) > 1) marker(ctx, X(f), h, '#facc15', 'MIX OUT RÁPIDO'); }
     if (inView(a.introEnd) && a.introEnd - a.mixIn > a.beatSec * 8) marker(ctx, X(a.introEnd), h, '#8b5cf6', 'DROP');
     if (inView(deck.cue)) marker(ctx, X(deck.cue), h, '#f59e0b', 'CUE', false);
+    const map = mixMap(deck);
+    if (map) {
+        ctx.fillStyle = 'rgba(16,185,129,0.14)';
+        ctx.fillRect(X(map.from), 0, X(map.to) - X(map.from), h);
+        map.marks.forEach(k => { if (inView(k.t)) marker(ctx, X(k.t), h, k.color, k.label, false); });
+    }
     [1, 2, 3].forEach(n => { if (deck.hotCues[n] !== null && inView(deck.hotCues[n])) marker(ctx, X(deck.hotCues[n]), h, HOTCUE_COLORS[n], String(n), false); });
 
     ctx.fillStyle = deck === decks.a ? '#00f0ff' : '#ff0055';
@@ -2744,7 +2812,12 @@ function frame(nowMs) {
             $(`deck-${k}-jog-beat`).innerText = pos < (a.phraseStart ?? a.downbeat) - 0.05 ? '-.-' : `${bar}.${beat}`;
             const toOut = Math.ceil((outPoint(deck) - pos) / (4 * a.beatSec));
             const leds = [1, 2, 3, 4].map(i => `<span style="color:${i === beat && deck.isPlaying ? (i === 1 ? '#ef4444' : '#e5e7eb') : '#374151'}">■</span>`).join('');
-            $(`deck-${k}-phrase`).innerHTML = `${leds} <span class="ml-1">${toOut > 0 ? `OUT en ${toOut} comp.` : pos < a.mixOut + barsToSec(deck, a.mixBars) ? '<span class="text-orange-400">ZONA DE SALIDA</span>' : ''}</span>`;
+            // During a mix: the next thing on the mix map, with its countdown
+            const map = autoMix && deck === autoMix.out ? mixMap(deck) : null;
+            const nextMark = map && map.marks.filter(mk => mk.t > pos + 0.05).sort((x, y) => x.t - y.t)[0];
+            const status = nextMark ? `<span style="color:${nextMark.color}">${nextMark.label} en ${Math.max(1, Math.ceil((nextMark.t - pos) / (4 * a.beatSec) - 0.02))} comp.</span>`
+                : toOut > 0 ? `OUT en ${toOut} comp.` : pos < a.mixOut + barsToSec(deck, a.mixBars) ? '<span class="text-orange-400">ZONA DE SALIDA</span>' : '';
+            $(`deck-${k}-phrase`).innerHTML = `${leds} <span class="ml-1">${status}</span>`;
         }
         if (deck.isPlaying) deck.jogAngle += 3 * deck.playbackRate;
         $(`deck-${k}-jog-rotor`).style.transform = `rotate(${deck.jogAngle}deg)`;
@@ -2753,6 +2826,7 @@ function frame(nowMs) {
         drawOverview(deck);
         drawVU(deck);
     });
+    renderPlanCrossfader();
     if (nowMs - lastAssist > 300) {
         lastAssist = nowMs;
         updateAssistant();

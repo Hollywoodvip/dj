@@ -127,6 +127,9 @@
             background: radial-gradient(circle at 50% 30%, #2a1f0a, #120d05);
             border: 1px solid #78350f; box-shadow: 0 3px 0 #0d0e12, inset 0 0 12px rgba(245,158,11,0.15);
         }
+        /* Crossfader: where the mix plan wants it right now */
+        .xf-plan { position: absolute; top: -5px; width: 2px; height: calc(100% + 10px); background: #34d399; border-radius: 1px; pointer-events: none; box-shadow: 0 0 6px rgba(52,211,153,0.8); transition: left 0.2s linear; }
+        .xf-plan::before { content: 'PLAN'; position: absolute; bottom: -11px; left: 50%; transform: translateX(-50%); font-size: 8px; font-weight: 700; color: #34d399; }
         .pad.armed { border-color: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.55); }
         .pad.pad-custom { border-color: #7c3aed; }
         .pad.pad-drop { border-color: #22d3ee; box-shadow: 0 0 0 2px rgba(34,211,238,0.7); }

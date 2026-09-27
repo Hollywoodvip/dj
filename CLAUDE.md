@@ -80,6 +80,10 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
   preparation is done PLAY is available right away ("entra cuando quieras"); the
   ideal moment is only a recommendation with a countdown. Nothing moves by itself
   in guided mode; AUTO mode does the same steps by itself.
+- **Mix map:** while a mix is armed, `mixMap` draws it on the waveforms (green zone +
+  ENTRA / BAJOS / FX / TODO AL / PAUSA on the outgoing deck, ENTRA AQUÍ on the incoming),
+  the phrase line counts down to the next mark, and `#xf-plan` shows where the plan
+  wants the crossfader now (`planCrossfader`).
 - **BPM sanity:** only 60–200 BPM; ×2/½ can't go outside it, saved tracks out of range are fixed on load.
 - **Beat FX are post-crossfader** (like a DJM): echo/reverb trails survive a cut.
 - **Guided mode waits for the user:** the plan's clock stops while something is

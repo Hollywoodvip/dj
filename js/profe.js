@@ -34,6 +34,7 @@ const GLOSSARY = [
     ['EQ (HI/MID/LOW)', 'Agudos, medios y bajos. En una mezcla nunca dejes dos bajos (LOW) a full a la vez: se "embarran".'],
     ['CROSSFADER', 'Pasa el sonido de un deck al otro. Al centro suenan los dos.'],
     ['SYNC', 'Iguala el tempo del deck con el otro y cuadra los beats.'],
+    ['MAPA DE LA MEZCLA', 'Cuando hay una mezcla armada, la parte verde en la onda del tema que suena es la mezcla: ENTRA (dale PLAY al otro), BAJOS (cambio de bajos), TODO AL (crossfader entero al tema nuevo) y PAUSA. Abajo de la onda está la cuenta regresiva, y la rayita verde PLAN sobre el crossfader muestra dónde debería ir.'],
 ];
 
 const Profe = (() => {
