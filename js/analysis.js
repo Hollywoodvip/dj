@@ -356,7 +356,9 @@ const Analysis = (() => {
     // Camelot code after pitching the track by `rate` (no key lock: pitch follows tempo)
     function shiftCamelot(camelot, rate) {
         if (!camelot) return null;
-        const semis = Math.round(12 * Math.log2(rate));
+        // Small pitch changes (< ~3.5%) don't really move the key; beyond that round to semitones
+        const exact = 12 * Math.log2(rate);
+        const semis = Math.abs(exact) < 0.6 ? 0 : Math.round(exact);
         if (!semis) return camelot;
         const n = parseInt(camelot, 10);
         const letter = camelot.slice(-1);
@@ -373,6 +375,22 @@ const Analysis = (() => {
         if (na === nb) return 1;
         if (la === lb && diff === 2) return 1;
         return 0;
+    }
+
+    // Loudness of the loud parts (90th percentile of 1-second RMS blocks), in dBFS
+    function loudnessDb(buffer) {
+        const win = Math.floor(buffer.sampleRate);
+        const d0 = buffer.getChannelData(0);
+        const d1 = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : d0;
+        const blocks = [];
+        for (let s = 0; s + win <= d0.length; s += win) {
+            let sum = 0;
+            for (let i = s; i < s + win; i += 4) { const v = (d0[i] + d1[i]) / 2; sum += v * v; }
+            blocks.push(sum / (win / 4));
+        }
+        if (!blocks.length) return -14;
+        blocks.sort((a, b) => a - b);
+        return 10 * Math.log10(blocks[Math.floor(blocks.length * 0.9)] || 1e-9);
     }
 
     function framesFromBands(bands) {
@@ -412,6 +430,7 @@ const Analysis = (() => {
         return {
             bpm,
             beatSec,
+            loudness: loudnessDb(buffer),
             firstBeat,
             downbeat,
             duration: buffer.duration,

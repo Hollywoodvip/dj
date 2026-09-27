@@ -37,6 +37,7 @@ class Deck {
     }
 
     initAudioNodes(ctx, destination) {
+        this.trim = ctx.createGain();        // auto gain: evens out loud and quiet tracks
         this.eqLow = ctx.createBiquadFilter();
         this.eqMid = ctx.createBiquadFilter();
         this.eqHigh = ctx.createBiquadFilter();
@@ -55,6 +56,7 @@ class Deck {
         this.eqHigh.frequency.value = 3500;
         this.filterNode.type = 'allpass';
 
+        this.trim.connect(this.eqLow);
         this.eqLow.connect(this.eqMid);
         this.eqMid.connect(this.eqHigh);
         this.eqHigh.connect(this.filterNode);
@@ -107,6 +109,9 @@ class Deck {
         this.bend = 1;
         this.syncOn = false;
         this.playbackRate = this.pitch;
+        // Level every track to about -12 dBFS RMS on its loud parts
+        this.trimDb = analysis && analysis.loudness !== undefined ? Math.max(-9, Math.min(6, -12 - analysis.loudness)) : 0;
+        if (this.trim) this.trim.gain.setTargetAtTime(Math.pow(10, this.trimDb / 20), audioCtx.currentTime, 0.02);
     }
 
     // offset: track position; when: AudioContext time to start (0 = now)
@@ -122,7 +127,7 @@ class Deck {
             src.loopStart = this.loop.start;
             src.loopEnd = this.loop.end;
         }
-        src.connect(this.eqLow);
+        src.connect(this.trim);
         this.sourceNode = src;
 
         const startPos = Math.max(0, Math.min(offset !== null ? offset : this.pauseOffset, this.duration - 0.01));
@@ -304,7 +309,7 @@ class Deck {
         g.gain.setValueAtTime(1, t);
         g.gain.linearRampToValueAtTime(0, t + 1.3);
         src.connect(g);
-        g.connect(this.eqLow);
+        g.connect(this.trim);
         src.start(t);
         src.stop(t + 1.35);
         this.pauseOffset = Math.max(0, pos - 1.3);

@@ -47,6 +47,7 @@ function deckTemplate(k) {
                         <span class="text-xs font-bold text-${c}-400 tracking-wider">DECK ${K}</span>
                         <span id="deck-${k}-key" class="tag" title="Tonalidad (Camelot)">KEY --</span>
                         <span id="deck-${k}-sync-tag" class="tag hidden" style="color:#22d3ee;border-color:#0e7490">SYNC</span>
+                        <span id="deck-${k}-trim" class="tag hidden" title="Nivelación automática de volumen entre temas"></span>
                         <span id="deck-${k}-status" class="text-[10px] text-amber-400"></span>
                     </div>
                     <h2 id="deck-${k}-title" class="text-sm font-bold text-white truncate">No track loaded</h2>
@@ -226,11 +227,55 @@ function setControl(id, value) {
 /* ==========================================================================
    KNOBS (drag / wheel / double-click)
    ========================================================================== */
+// Touchpads send many small scroll events; mice send big notches. Both are
+// turned into a proportional amount (positive = increase). On Macs "natural
+// scrolling" flips the direction, which the SCROLL button lets you invert.
+const Prefs = {
+    naturalScroll: (() => {
+        try { const v = localStorage.getItem('webdj-natural-scroll'); if (v !== null) return v === '1'; } catch (e) {}
+        return /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent);
+    })(),
+};
+
+function wheelAmount(e) {
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+    const dy = e.deltaY * unit, dx = e.deltaX * unit;
+    const y = Prefs.naturalScroll ? dy : -dy;
+    const x = Prefs.naturalScroll ? -dx : dx;
+    return Math.abs(dy) >= Math.abs(dx) ? y : x;
+}
+
+// Adds `px` of wheel movement to a range input (full range = `fullPx` pixels)
+function nudgeRange(input, px, fullPx) {
+    const min = +input.min, max = +input.max, range = max - min;
+    const delta = clamp(px / fullPx * range, -range / 10, range / 10);
+    const v = clamp(+input.value + delta, min, max);
+    if (v === +input.value) return;
+    input.value = v;
+    input.dispatchEvent(new Event('input'));
+}
+
+function knobText(input) {
+    const v = +input.value;
+    if (input.id.endsWith('filter')) return v > 2 ? `HPF ${Math.round(v)}` : v < -2 ? `LPF ${Math.round(-v)}` : 'OFF';
+    return `${v > 0 ? '+' : ''}${v.toFixed(1)} dB`;
+}
+
 function setupKnob(container) {
     const input = container.querySelector('input');
     const dial = container.querySelector('.knob-dial');
     const min = +input.min, max = +input.max, step = +input.step;
     const def = +input.dataset.default;
+    const bubble = document.createElement('span');
+    bubble.className = 'knob-value';
+    container.appendChild(bubble);
+    let hideTimer = null;
+    const flash = () => {
+        bubble.textContent = knobText(input);
+        bubble.classList.add('show');
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(() => bubble.classList.remove('show'), 900);
+    };
     const render = () => {
         const v = +input.value;
         const angle = v >= def ? ((v - def) / (max - def)) * 135 : -((def - v) / (def - min)) * 135;
@@ -238,42 +283,47 @@ function setupKnob(container) {
     };
     const setValue = (v) => {
         v = Math.round(clamp(v, min, max) / step) * step;
-        if (Math.abs(v - def) < step * 1.5 && Math.abs(v - def) > 0) v = def; // snap to centre
         if (+input.value === v) return;
         input.value = v;
         input.dispatchEvent(new Event('input'));
     };
+    // Drag in any direction: up or right = more
     let drag = null;
     container.addEventListener('pointerdown', (e) => {
         ensureAudio();
         container.setPointerCapture(e.pointerId);
-        drag = { y: e.clientY, v: +input.value };
+        drag = { x: e.clientX, y: e.clientY, v: +input.value };
+        flash();
     });
     container.addEventListener('pointermove', (e) => {
         if (!drag) return;
-        const range = max - min;
-        setValue(drag.v + (drag.y - e.clientY) / (e.shiftKey ? 600 : 160) * range);
+        const moved = (e.clientX - drag.x) - (e.clientY - drag.y);
+        setValue(drag.v + moved / (e.shiftKey ? 500 : 130) * (max - min));
+        flash();
     });
     const end = () => { drag = null; };
     container.addEventListener('pointerup', end);
     container.addEventListener('pointercancel', end);
-    container.addEventListener('dblclick', () => setValue(def));
+    container.addEventListener('dblclick', () => { setValue(def); flash(); });
     container.addEventListener('wheel', (e) => {
         e.preventDefault();
         ensureAudio();
-        setValue(+input.value - Math.sign(e.deltaY) * (max - min) / 40);
+        nudgeRange(input, wheelAmount(e), e.shiftKey ? 900 : 260);
+        flash();
     }, { passive: false });
-    input.addEventListener('input', render);
+    input.addEventListener('input', () => { render(); if (drag || bubble.classList.contains('show')) bubble.textContent = knobText(input); });
     render();
 }
 
-function wheelSlider(input, stepSize) {
+function wheelSlider(input, fullPx = 300) {
     input.addEventListener('wheel', (e) => {
         e.preventDefault();
-        const v = clamp(+input.value - Math.sign(e.deltaY) * stepSize, +input.min, +input.max);
-        input.value = v;
-        input.dispatchEvent(new Event('input'));
+        nudgeRange(input, wheelAmount(e), e.shiftKey ? fullPx * 4 : fullPx);
     }, { passive: false });
+}
+
+function refreshScrollLabel() {
+    $('scroll-label').textContent = Prefs.naturalScroll ? 'SCROLL: NATURAL' : 'SCROLL: CLÁSICO';
 }
 
 /* ==========================================================================
@@ -420,6 +470,9 @@ function onDeckLoaded(deck) {
     $(`deck-${k}-title`).textContent = t.title;
     $(`deck-${k}-artist`).textContent = t.artist || '';
     setPitchUI(deck);
+    const trim = $(`deck-${k}-trim`);
+    trim.classList.toggle('hidden', !deck.trimDb);
+    trim.textContent = `GAIN ${deck.trimDb > 0 ? '+' : ''}${(deck.trimDb || 0).toFixed(1)}dB`;
     buildOverviewCache(deck);
     refreshDeckButtons(deck);
     renderLibrary();
@@ -710,6 +763,7 @@ function drawOverview(deck) {
         ctx.fillRect(X(deck.loop.start), 0, Math.max(2, X(deck.loop.end) - X(deck.loop.start)), h);
     }
     marker(ctx, X(a.mixIn), h, '#10b981', 'IN');
+    if (a.introEnd - a.mixIn > a.beatSec * 8) marker(ctx, X(a.introEnd), h, '#8b5cf6', 'DROP', false);
     marker(ctx, X(a.mixOut), h, '#f97316', 'OUT');
     ctx.fillStyle = 'rgba(249,115,22,0.25)';
     ctx.fillRect(X(a.mixOut), h - 3, X(Math.min(dur, a.mixOut + a.mixBars * 4 * a.beatSec)) - X(a.mixOut), 3);
@@ -780,6 +834,7 @@ function drawZoom(deck) {
     const inView = (t) => t >= start && t <= start + ZOOM_SECONDS;
     if (inView(a.mixIn)) marker(ctx, X(a.mixIn), h, '#10b981', 'MIX IN');
     if (inView(a.mixOut)) marker(ctx, X(a.mixOut), h, '#f97316', 'MIX OUT');
+    if (inView(a.introEnd) && a.introEnd - a.mixIn > a.beatSec * 8) marker(ctx, X(a.introEnd), h, '#8b5cf6', 'DROP');
     if (inView(deck.cue)) marker(ctx, X(deck.cue), h, '#f59e0b', 'CUE', false);
     [1, 2, 3].forEach(n => { if (deck.hotCues[n] !== null && inView(deck.hotCues[n])) marker(ctx, X(deck.hotCues[n]), h, HOTCUE_COLORS[n], String(n), false); });
 
@@ -810,11 +865,14 @@ function drawVU(deck) {
 }
 
 /* ==========================================================================
-   MIX ASSISTANT + AUTO MIX + AUTO DJ
+   MIX COACH: transition plans, AUTO MIX (does it for you) and GUIDED mode
+   (lights up the controls you have to move)
    ========================================================================== */
 let autoMix = null;
 let autoDJ = false;
 let mixBarsSetting = 'auto';
+let mixStyleSetting = 'auto';
+const MIX_STYLES = { blend: 'BLEND CON EQ', filter: 'FILTER SWEEP', echo: 'ECHO OUT' };
 
 function liveAndNext() {
     if (autoMix) return { live: autoMix.out, next: autoMix.in };
@@ -829,18 +887,279 @@ function liveAndNext() {
 
 function barsToSec(deck, bars) { return bars * 4 * deck.beatSec; }
 
+function keyInfo(live, next, nextRate) {
+    const liveKey = live.analysis.key && Analysis.shiftCamelot(live.analysis.key.camelot, live.pitch);
+    const nextKey = next.analysis.key && Analysis.shiftCamelot(next.analysis.key.camelot, nextRate);
+    return { liveKey, nextKey, compat: Analysis.keyCompatibility(liveKey, nextKey) };
+}
+
 function recommendedBars(live, next) {
     if (mixBarsSetting !== 'auto') return +mixBarsSetting;
     let bars = live.analysis.mixBars;
     const introBars = Math.floor((next.analysis.introEnd - next.analysis.mixIn) / (4 * next.beatSec));
     if (introBars >= 8) bars = Math.min(bars, introBars >= 32 ? 32 : introBars >= 16 ? 16 : 8);
-    const r = tempoRatio(next, live);
-    const liveKey = live.analysis.key && Analysis.shiftCamelot(live.analysis.key.camelot, live.pitch);
-    const nextKey = next.analysis.key && Analysis.shiftCamelot(next.analysis.key.camelot, r ? r.rate : next.pitch);
-    if (Analysis.keyCompatibility(liveKey, nextKey) === 0) bars = Math.min(bars, 8); // clashing keys: keep it short
     return Math.max(4, bars);
 }
 
+// Build a transition plan. Pure: it doesn't touch the decks.
+function planTransition(live, next, now = false) {
+    const la = live.analysis, na = next.analysis;
+    const r = tempoRatio(next, live);
+    const { liveKey, nextKey, compat } = keyInfo(live, next, r ? r.rate : next.pitch);
+    const barOut = 4 * live.beatSec;
+    const pos = live.getCurrentTime();
+
+    let style = mixStyleSetting;
+    let reason;
+    if (style === 'auto') {
+        if (!r) {
+            style = 'echo';
+            reason = `los tempos (${live.effectiveBpm.toFixed(0)} y ${next.bpm.toFixed(0)} BPM) están muy lejos para sonar encima: se corta con eco y entra el otro en su drop`;
+        } else if (compat === 0) {
+            style = 'filter';
+            reason = `las tonalidades ${liveKey} y ${nextKey} chocan: el filtro le quita cuerpo al tema que sale y la mezcla es corta`;
+        } else if (la.mixBars <= 4) {
+            style = 'echo';
+            reason = 'el tema que suena casi no tiene outro para mezclar encima';
+        } else {
+            style = 'blend';
+            reason = compat === 2 ? `tempo cercano y tonalidades armónicas (${liveKey} → ${nextKey}): se pueden fundir largo`
+                : 'tempo cercano: se funden con EQ cambiando los bajos a la mitad';
+        }
+    } else {
+        reason = 'estilo elegido por ti';
+    }
+
+    let bars = style === 'echo' ? 2 : recommendedBars(live, next);
+    if (style === 'filter' && mixBarsSetting === 'auto') bars = Math.min(bars, compat === 0 ? 8 : 16);
+    let target = la.mixOut;
+    if (now || pos > target - 1.5 * live.playbackRate) target = live.nextBarAfter(pos + 1.2 * live.playbackRate);
+    while (bars > 2 && target + (bars + 0.5) * barOut > live.duration) bars /= 2;
+    bars = Math.max(2, Math.round(bars));
+
+    // Incoming start point: the intro for blends, straight into the drop for an echo out
+    const introBars = (na.introEnd - na.mixIn) / (4 * next.beatSec);
+    const useDrop = style === 'echo' && introBars >= 4 && na.introEnd < next.duration - 30;
+    const inStart = useDrop ? na.introEnd : na.mixIn;
+
+    const A = live.key, B = next.key, LA = live.id, LB = next.id;
+    const xOut = live === decks.a ? -1 : 1;
+    const xIn = -xOut;
+    const steps = [];
+    const step = (at, text, actions) => steps.push({ at, text, actions });
+    // preset = applied automatically even in guided mode (incoming deck is still silent)
+    const set = (id, value, glide = 0, preset = false) => ({ type: 'set', id, value, glide, preset });
+    const q = bars / 4;
+
+    if (style === 'blend') {
+        step(0, `Entra ${LB} desde ${formatTime(inStart, false)} con el LOW en −26 y el HI en −8 (te lo dejo listo). Lleva el crossfader al centro`,
+            [{ type: 'startIn' }, set(`deck-${B}-eq-low`, -26, 0, true), set(`deck-${B}-eq-high`, -8, 0, true), set('crossfader', 0, q)]);
+        step(q, `Sube el HI de ${LB} a 0`, [set(`deck-${B}-eq-high`, 0, Math.min(2, q))]);
+        step(bars / 2, `Cambio de bajos: LOW de ${LA} a −26 y LOW de ${LB} a 0`, [set(`deck-${A}-eq-low`, -26, 0.25), set(`deck-${B}-eq-low`, 0, 0.25)]);
+        step(3 * q, `Baja el MID de ${LA} a −8 y el HI a −12`, [set(`deck-${A}-eq-mid`, -8, Math.max(1, q - 1)), set(`deck-${A}-eq-high`, -12, Math.max(1, q - 1))]);
+        if (bars >= 8) step(bars - 2, `REVERB (2 beats) en ${LA} para que se desvanezca`, [{ type: 'fx', deck: A, fx: 'reverb', beats: 2, level: 0.5 }]);
+        step(bars, `Crossfader entero a ${LB}`, [set('crossfader', xIn, 0.5)]);
+    } else if (style === 'filter') {
+        step(0, `Entra ${LB} desde ${formatTime(inStart, false)} con el LOW en −26 (te lo dejo listo). Crossfader al centro y empieza a subir el FILTER de ${LA} (high-pass) de a poco`,
+            [{ type: 'startIn' }, set(`deck-${B}-eq-low`, -26, 0, true), set('crossfader', 0, q), set(`deck-${A}-filter`, 70, bars)]);
+        step(bars / 2, `Cambio de bajos: LOW de ${LA} a −26 y LOW de ${LB} a 0`, [set(`deck-${A}-eq-low`, -26, 0.25), set(`deck-${B}-eq-low`, 0, 0.25)]);
+        step(bars - 1, `ECHO 1/2 en ${LA} para cerrar`, [{ type: 'fx', deck: A, fx: 'echo', beats: 0.5, level: 0.6 }]);
+        step(bars, `Crossfader entero a ${LB} (el eco se va apagando)`, [set('crossfader', xIn, 0.5)]);
+    } else {
+        step(-1, `Un compás antes: ECHO 1/2 en ${LA}`, [{ type: 'fx', deck: A, fx: 'echo', beats: 0.5, level: 0.7 }]);
+        step(0, `Corta ${LA} (el eco queda sonando) y entra ${LB} ${useDrop ? 'directo en su drop' : 'desde su IN'} (${formatTime(inStart, false)}). Crossfader al centro`,
+            [{ type: 'stopOut' }, { type: 'startIn' }, set('crossfader', 0, 0, true)]);
+        step(1, `Crossfader entero a ${LB}`, [set('crossfader', xIn, 1)]);
+    }
+    step(bars + 0.5, `Listo: ${LA} se detiene y sus perillas vuelven a 0`, [{ type: 'end' }]);
+
+    return {
+        style, styleLabel: MIX_STYLES[style], reason, bars, target, inStart, useDrop,
+        synced: !!r, rate: r ? r.rate : null, factor: r ? r.factor : 1, steps, xIn, xOut,
+    };
+}
+
+function prepareNext() {
+    ensureAudio();
+    const { live, next } = liveAndNext();
+    if (!next.analysis) { toast(`Carga un tema en el Deck ${next.id}`, 'warn'); return; }
+    if (next.isPlaying) { toast(`El Deck ${next.id} ya está sonando`, 'warn'); return; }
+    const plan = live.analysis ? planTransition(live, next) : null;
+    next.cue = plan ? plan.inStart : next.analysis.mixIn;
+    next.seek(next.cue);
+    if (plan && plan.synced) matchTempo(next, live, true);
+    toast(`Deck ${next.id} listo en su punto de entrada${plan && plan.synced ? ' y con el tempo ajustado' : ''}`, 'ok');
+}
+
+function startAutoMix(now = false, mode = 'auto') {
+    ensureAudio();
+    if (autoMix) { toast('Ya hay una mezcla en curso (Esc cancela)', 'warn'); return false; }
+    const { live, next } = liveAndNext();
+    if (!live.analysis || !next.analysis) { toast('Necesitas temas cargados en ambos decks', 'warn'); return false; }
+    if (!live.isPlaying) { toast(`Dale PLAY al Deck ${live.id} primero`, 'warn'); return false; }
+
+    const plan = planTransition(live, next, now);
+    if (plan.synced) matchTempo(next, live, true);
+    if (!next.isPlaying) {
+        next.pause();
+        next.seek(plan.inStart);
+    }
+    plan.steps.forEach(s => { s.fired = false; s.pending = []; });
+    autoMix = { out: live, in: next, plan, mode, target: plan.target, bars: plan.bars, phase: 'waiting', progress: 0, started: false, startCtx: 0 };
+    // Crossfader on the playing side so the incoming deck starts silent
+    glideControl('crossfader', plan.xOut, 400);
+    toast(mode === 'guide'
+        ? `Mezcla GUIADA: se van a iluminar las perillas que tienes que mover. Empieza a las ${formatTime(plan.target, false)} del ${live.id}`
+        : now ? `Mezclando al Deck ${next.id} en el próximo compás` : `Auto mix armado (${plan.styleLabel}): entra el Deck ${next.id} a las ${formatTime(plan.target, false)} del ${live.id}`, 'ok');
+    updateAssistant();
+    return true;
+}
+
+function cancelAutoMix(message = 'Mezcla cancelada') {
+    if (!autoMix) return;
+    autoMix = null;
+    setCoachTargets([]);
+    toast(message, 'warn');
+    updateAssistant();
+}
+
+// Smoothly move a control over `ms` milliseconds
+const glides = {};
+function glideControl(id, to, ms) {
+    const from = +$(id).value;
+    if (ms <= 0) { delete glides[id]; setControl(id, to); return; }
+    glides[id] = { from, to, start: performance.now(), ms };
+}
+function tickGlides(nowMs) {
+    Object.entries(glides).forEach(([id, g]) => {
+        const t = clamp((nowMs - g.start) / g.ms, 0, 1);
+        setControl(id, g.from + (g.to - g.from) * t);
+        if (t >= 1) delete glides[id];
+    });
+}
+
+function mixBarSeconds(m) { return 4 * m.out.beatSec / m.out.playbackRate; }
+
+// Bars since the transition point (negative while waiting)
+function mixBarPosition(m) {
+    if (m.started) return (audioCtx.currentTime - m.startCtx) / mixBarSeconds(m);
+    return (m.out.getCurrentTime() - m.target) / (4 * m.out.beatSec);
+}
+
+function fireStep(m, step) {
+    step.fired = true;
+    step.pending = [];
+    step.actions.forEach(a => {
+        if (a.type === 'set') {
+            if (m.mode === 'auto' || a.preset) glideControl(a.id, a.value, a.glide * mixBarSeconds(m) * 1000);
+            else step.pending.push({ id: a.id, value: a.value });
+        } else if (a.type === 'fx') {
+            const d = decks[a.deck];
+            d.fx.setType(a.fx);
+            d.fx.setBeats(a.beats);
+            setControl(`deck-${a.deck}-fx-level`, a.level);
+            if (m.mode === 'auto') d.fx.setOn(true);
+            else step.pending.push({ id: `deck-${a.deck}-fx-on`, fx: d });
+            refreshFxUI(d);
+        } else if (a.type === 'stopOut') {
+            if (m.out.isPlaying) m.out.pause();
+        } else if (a.type === 'end') {
+            finishAutoMix();
+        }
+    });
+    if (autoMix) refreshCoachTargets();
+}
+
+function targetReached(t) {
+    if (t.fx) return t.fx.on;
+    const el = $(t.id);
+    const tol = (+el.max - +el.min) * 0.1;
+    return Math.abs(+el.value - t.value) <= tol;
+}
+
+function refreshCoachTargets() {
+    const m = autoMix;
+    if (!m) { setCoachTargets([]); return; }
+    const targets = [];
+    m.plan.steps.forEach(s => {
+        s.pending = (s.pending || []).filter(t => !targetReached(t));
+        targets.push(...s.pending);
+    });
+    setCoachTargets(targets);
+}
+
+function formatTarget(t) {
+    if (t.fx) return 'ON';
+    if (t.id === 'crossfader') return t.value === 0 ? 'CENTRO' : t.value < 0 ? 'A' : 'B';
+    if (t.id.endsWith('filter')) return t.value > 0 ? `HPF ${t.value}` : t.value < 0 ? `LPF ${-t.value}` : '0';
+    return `${t.value > 0 ? '+' : ''}${t.value} dB`;
+}
+
+let coachEls = [];
+function setCoachTargets(targets) {
+    coachEls.forEach(el => { el.classList.remove('coach-target'); delete el.dataset.target; });
+    coachEls = targets.map(t => {
+        const input = $(t.id);
+        const el = input.closest('.knob-container') || (input.tagName === 'INPUT' ? input.parentElement : input);
+        el.classList.add('coach-target');
+        el.dataset.target = formatTarget(t);
+        return el;
+    });
+}
+
+function finishAutoMix() {
+    const m = autoMix;
+    if (!m) return;
+    const { out, in: inc, plan } = m;
+    if (out.isPlaying) out.pause();
+    if (out.fx.on) out.fx.setOn(false);
+    ['low', 'mid', 'high'].forEach(b => setControl(`deck-${out.key}-eq-${b}`, 0));
+    setControl(`deck-${out.key}-filter`, 0);
+    setControl(`deck-${inc.key}-eq-low`, 0);
+    setControl(`deck-${inc.key}-eq-high`, 0);
+    setControl('crossfader', plan.xIn);
+    if (out.syncOn) out.syncOn = false;
+    refreshDeckButtons(out);
+    autoMix = null;
+    setCoachTargets([]);
+    toast(`Mezcla completa: ahora suena el Deck ${inc.id}`, 'ok');
+    renderLibrary();
+    updateAssistant();
+}
+
+function tickAutoMix() {
+    const m = autoMix;
+    if (!m) return;
+    const { out, in: inc, plan } = m;
+    if (!m.started) {
+        if (!out.isPlaying) { cancelAutoMix('Mezcla cancelada: el deck se detuvo'); return; }
+        const dt = (m.target - out.getCurrentTime()) / out.playbackRate;
+        if (dt <= 0.3) {
+            // Start the incoming deck sample-accurately on the outgoing deck's bar
+            m.startCtx = audioCtx.currentTime + Math.max(0.01, dt);
+            if (!inc.isPlaying) {
+                inc.play(plan.inStart, m.startCtx);
+                if (inc.track) inc.track.played = true;
+            } else if (plan.synced) {
+                alignPhase(inc, out);
+            }
+            m.started = true;
+            m.phase = 'mixing';
+            renderLibrary();
+        }
+    }
+    const barPos = mixBarPosition(m);
+    m.progress = clamp(barPos / plan.bars, 0, 1);
+    for (const s of plan.steps) {
+        if (!autoMix) return;
+        if (s.fired || barPos < s.at) continue;
+        if (s.at >= 0 && !m.started) continue;
+        fireStep(m, s);
+    }
+    if (autoMix && m.mode === 'guide') refreshCoachTargets();
+}
+
+/* ---------- assistant panel ---------- */
 function deckCard(deck, role) {
     const c = deck === decks.a ? 'text-cyan-400' : 'text-rose-400';
     if (!deck.analysis) return `<div class="${c} font-bold text-[10px] mb-1">${role} · DECK ${deck.id}</div><div class="text-gray-500">Sin tema cargado</div>`;
@@ -855,12 +1174,12 @@ function deckCard(deck, role) {
             : `<b class="text-orange-400">En la zona de salida</b> · quedan ${formatTime((deck.duration - pos) / deck.playbackRate, false)}`;
     } else {
         const introBars = Math.round((a.introEnd - a.mixIn) / (4 * deck.beatSec));
-        line = `Entrada <b class="text-emerald-400">${formatTime(a.mixIn, false)}</b> · intro de ${introBars} compases${a.breakdowns.length ? ` · ${a.breakdowns.length} breakdown(s)` : ''}`;
+        line = `Entrada <b class="text-emerald-400">${formatTime(a.mixIn, false)}</b> · intro de ${introBars} comp. · drop <b class="text-violet-300">${formatTime(a.introEnd, false)}</b>`;
     }
     return `
         <div class="flex justify-between items-center mb-1">
             <span class="${c} font-bold text-[10px]">${role} · DECK ${deck.id}${deck.isPlaying ? ' ▶' : ''}</span>
-            <span class="font-digits text-[10px] text-gray-300">${deck.effectiveBpm.toFixed(1)} BPM · <span class="tag">${key}</span></span>
+            <span class="font-digits text-[10px] text-gray-300">${deck.effectiveBpm.toFixed(1)} BPM · <span class="tag">${key}</span>${deck.trimDb ? ` <span class="tag" title="Nivelación automática de volumen">${deck.trimDb > 0 ? '+' : ''}${deck.trimDb.toFixed(1)}dB</span>` : ''}</span>
         </div>
         <div class="text-white font-bold truncate">${escapeHtml(deck.track ? deck.track.title : '')}</div>
         <div class="text-gray-400 mt-0.5">${line}</div>`;
@@ -870,167 +1189,89 @@ function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
 
+function stepLabel(at) {
+    if (at < 0) return `${at} comp.`;
+    return `comp. ${Number.isInteger(at) ? at : at.toFixed(1)}`;
+}
+
+function renderPlan(plan, m, live, next) {
+    const total = plan.bars + 0.5;
+    const minAt = Math.min(0, ...plan.steps.map(s => s.at));
+    const span = total - minAt;
+    const barPos = m ? mixBarPosition(m) : null;
+    let status;
+    if (!m) {
+        const remain = (plan.target - live.getCurrentTime()) / live.playbackRate;
+        status = live.isPlaying ? `empezaría en ${formatTime(Math.max(0, remain), false)}` : 'dale PLAY para empezar';
+    } else if (!m.started) {
+        status = `empieza en ${formatTime(Math.max(0, (m.target - m.out.getCurrentTime()) / m.out.playbackRate), false)} (${Math.max(0, Math.ceil(-barPos))} comp.)`;
+    } else {
+        status = `compás ${Math.min(plan.bars, Math.floor(barPos) + 1)} de ${plan.bars}`;
+    }
+    const pct = plan.rate ? ((plan.rate - 1) * 100).toFixed(1) : null;
+    const current = m ? plan.steps.filter(s => s.fired && s.pending && s.pending.length).slice(-1) : [];
+
+    const markers = plan.steps.map(s => {
+        const left = ((s.at - minAt) / span) * 100;
+        const color = s.fired ? '#34d399' : '#4b5563';
+        return `<div class="absolute top-0 w-1 h-3 -ml-0.5 rounded" style="left:${left}%;background:${color}"></div>`;
+    }).join('');
+    const cursor = barPos !== null ? `<div class="absolute -top-0.5 w-0.5 h-4 bg-white" style="left:${clamp((barPos - minAt) / span, 0, 1) * 100}%"></div>` : '';
+    const zero = ((0 - minAt) / span) * 100;
+
+    const rows = plan.steps.map(s => {
+        let icon = '<i class="fa-regular fa-circle text-gray-600"></i>';
+        let cls = 'text-gray-300';
+        if (s.fired && s.pending && s.pending.length) { icon = '<i class="fa-solid fa-hand-point-right text-amber-300"></i>'; cls = 'text-amber-200 font-bold'; }
+        else if (s.fired) { icon = '<i class="fa-solid fa-check text-emerald-400"></i>'; cls = 'text-gray-500'; }
+        return `<li class="flex gap-2 items-start ${cls}">${icon}<span class="font-digits text-[9px] text-gray-500 w-14 shrink-0 mt-0.5">${stepLabel(s.at)}</span><span>${s.text}</span></li>`;
+    }).join('');
+
+    return `
+        <div class="flex flex-wrap justify-between items-center gap-2 mb-1">
+            <span class="font-bold text-emerald-300 text-xs"><i class="fa-solid fa-route mr-1"></i>PLAN: ${plan.styleLabel} · ${plan.bars} compases${m ? (m.mode === 'guide' ? ' · GUIADO' : ' · AUTO') : ''}</span>
+            <span class="font-digits text-[10px] text-gray-300">${status}</span>
+        </div>
+        <div class="text-[11px] text-gray-400 mb-1">Por qué: ${plan.reason}.</div>
+        <div class="text-[11px] text-gray-200 mb-2">
+            <i class="fa-solid fa-play text-emerald-400 mr-1"></i>Empieza cuando el <b>${live.id}</b> llegue a <b class="text-orange-400">${formatTime(plan.target, false)}</b>
+            · el <b>${next.id}</b> arranca desde <b class="text-emerald-400">${formatTime(plan.inStart, false)}</b>${plan.useDrop ? ' (su drop)' : ' (su IN)'}
+            ${pct !== null ? `· tempo del ${next.id} ${pct >= 0 ? '+' : ''}${pct}%` : '· sin sync'}
+        </div>
+        ${current.length ? `<div class="mb-2 p-2 rounded border border-amber-500/50 bg-amber-950/40 text-amber-200 text-xs font-bold animate-pulse"><i class="fa-solid fa-hand-point-right mr-1"></i>AHORA: ${current[0].text} <span class="font-normal text-amber-300/80">(lo que tienes que mover está iluminado en verde)</span></div>` : ''}
+        <div class="relative h-3 bg-gray-900 rounded mb-2 border border-gray-800">
+            <div class="absolute top-0 bottom-0 bg-emerald-900/60 rounded" style="left:${zero}%;width:${m ? clamp(barPos / plan.bars, 0, 1) * (100 - zero) : 0}%"></div>
+            ${markers}${cursor}
+        </div>
+        <ul class="space-y-1 text-[11px]">${rows}</ul>`;
+}
+
 function updateAssistant() {
     const { live, next } = liveAndNext();
     $('assist-live').innerHTML = deckCard(live, 'SONANDO');
     $('assist-next').innerHTML = deckCard(next, 'SIGUIENTE');
     const tips = [];
     const add = (icon, color, html) => tips.push(`<li class="flex gap-2"><i class="fa-solid ${icon} ${color} mt-0.5"></i><span>${html}</span></li>`);
+    let planHtml = '';
 
     if (!live.analysis) {
         add('fa-circle-info', 'text-gray-400', `Carga un tema en el Deck ${live.id} y dale PLAY para empezar.`);
     } else if (!next.analysis) {
         add('fa-circle-info', 'text-gray-400', `Carga el próximo tema en el Deck ${next.id}. Los de la librería con <i class="fa-solid fa-star text-emerald-400"></i> combinan mejor.`);
     } else {
-        const r = tempoRatio(next, live);
-        if (!r) add('fa-triangle-exclamation', 'text-amber-400', `Tempos muy distintos (${live.effectiveBpm.toFixed(0)} vs ${next.bpm.toFixed(0)} BPM). Mezcla con corte rápido o prueba ½ / ×2 si el BPM detectado está mal.`);
-        else {
-            const pct = ((r.rate - 1) * 100).toFixed(1);
-            const extra = r.factor !== 1 ? ` (tomando ${r.factor === 2 ? 'doble' : 'medio'} tiempo)` : '';
-            add('fa-gauge-high', Math.abs(r.rate - 1) < 0.06 ? 'text-emerald-400' : 'text-amber-400',
-                `Tempo: el Deck ${next.id} necesita <b>${pct >= 0 ? '+' : ''}${pct}%</b>${extra}. SYNC o AUTO MIX lo ajustan solos.`);
-        }
-        const liveKey = live.analysis.key && Analysis.shiftCamelot(live.analysis.key.camelot, live.pitch);
-        const nextKey = next.analysis.key && Analysis.shiftCamelot(next.analysis.key.camelot, r ? r.rate : next.pitch);
-        const compat = Analysis.keyCompatibility(liveKey, nextKey);
-        if (compat === 2) add('fa-music', 'text-emerald-400', `Tonalidad ${liveKey} → ${nextKey}: <b>armónica</b>, puedes hacer una mezcla larga.`);
-        else if (compat === 1) add('fa-music', 'text-amber-300', `Tonalidad ${liveKey} → ${nextKey}: compatible con cambio de energía.`);
-        else if (compat === 0) add('fa-music', 'text-rose-400', `Tonalidad ${liveKey} → ${nextKey}: <b>chocan</b>. Mezcla corta (8 compases) o baja los medios/usa el filtro.`);
-
-        const bars = recommendedBars(live, next);
-        if (live.isPlaying) {
-            const toOut = live.analysis.mixOut - live.getCurrentTime();
-            if (toOut > 0) add('fa-clock', 'text-cyan-300', `Mejor momento: arranca el Deck ${next.id} en su IN cuando el ${live.id} llegue a <b>${formatTime(live.analysis.mixOut, false)}</b>, transición de <b>${bars} compases</b> con cambio de bajos a la mitad.`);
-            else add('fa-bolt', 'text-orange-400', `El Deck ${live.id} ya está en su outro: <b>MIX NOW</b> (Shift+Enter) para entrar en el próximo compás.`);
-        }
+        const plan = autoMix ? autoMix.plan : planTransition(live, next);
+        const { liveKey, nextKey, compat } = keyInfo(live, next, plan.rate || next.pitch);
+        if (!plan.synced) add('fa-triangle-exclamation', 'text-amber-400', `Tempos muy distintos (${live.effectiveBpm.toFixed(0)} vs ${next.bpm.toFixed(0)} BPM). Si el BPM detectado está mal, corrígelo con ½ / ×2 / TAP.`);
+        if (compat === 2) add('fa-music', 'text-emerald-400', `Tonalidad ${liveKey} → ${nextKey}: <b>armónica</b>.`);
+        else if (compat === 1) add('fa-music', 'text-amber-300', `Tonalidad ${liveKey} → ${nextKey}: compatible (cambio de energía).`);
+        else if (compat === 0) add('fa-music', 'text-rose-400', `Tonalidad ${liveKey} → ${nextKey}: <b>chocan</b>, mejor una mezcla corta.`);
+        planHtml = renderPlan(plan, autoMix, live, next);
     }
     if (autoDJ) add('fa-robot', 'text-emerald-400', `AUTO DJ activo: ${library.filter(e => !e.played).length} tema(s) sin tocar en la librería.`);
     $('assist-advice').innerHTML = tips.join('');
-
-    // Auto mix progress
-    const wrap = $('automix-progress-wrap');
+    $('assist-plan').innerHTML = planHtml;
+    $('assist-plan').classList.toggle('hidden', !planHtml);
     $('automix-cancel').classList.toggle('hidden', !autoMix);
-    if (!autoMix) { wrap.classList.add('hidden'); return; }
-    wrap.classList.remove('hidden');
-    const m = autoMix;
-    if (m.phase === 'waiting') {
-        const remain = (m.target - m.out.getCurrentTime()) / m.out.playbackRate;
-        $('automix-label').textContent = `AUTO MIX ${m.out.id} → ${m.in.id} · ${m.bars} compases${m.synced ? ' · sync' : ' · sin sync'}`;
-        $('automix-countdown').textContent = `empieza en ${formatTime(remain, false)}`;
-        $('automix-bar').style.width = '0%';
-    } else {
-        $('automix-label').textContent = `MEZCLANDO ${m.out.id} → ${m.in.id}`;
-        $('automix-countdown').textContent = m.bassSwapped ? 'bajos cambiados' : 'entrando...';
-        $('automix-bar').style.width = `${Math.round(m.progress * 100)}%`;
-    }
-}
-
-function prepareNext() {
-    ensureAudio();
-    const { live, next } = liveAndNext();
-    if (!next.analysis) { toast(`Carga un tema en el Deck ${next.id}`, 'warn'); return; }
-    if (next.isPlaying) { toast(`El Deck ${next.id} ya está sonando`, 'warn'); return; }
-    next.cue = next.analysis.mixIn;
-    next.seek(next.cue);
-    if (live.analysis) matchTempo(next, live, true);
-    toast(`Deck ${next.id} listo en su punto de entrada${live.analysis ? ' y con el tempo ajustado' : ''}`, 'ok');
-}
-
-function startAutoMix(now = false) {
-    ensureAudio();
-    if (autoMix) { toast('Ya hay una mezcla en curso (Esc cancela)', 'warn'); return false; }
-    const { live, next } = liveAndNext();
-    if (!live.analysis || !next.analysis) { toast('Necesitas temas cargados en ambos decks', 'warn'); return false; }
-    if (!live.isPlaying) { toast(`Dale PLAY al Deck ${live.id} primero`, 'warn'); return false; }
-
-    const synced = matchTempo(next, live, true);
-    const pos = live.getCurrentTime();
-    let bars = recommendedBars(live, next);
-    let target = live.analysis.mixOut;
-    if (now || pos > target - 1.5 * live.playbackRate) target = live.nextBarAfter(pos + 1.2 * live.playbackRate);
-    // Never run past the end of the outgoing track
-    while (bars > 4 && target + barsToSec(live, bars) > live.duration) bars /= 2;
-    if (!synced) bars = Math.min(bars, 4);
-
-    if (!next.isPlaying) {
-        next.pause();
-        next.seek(next.analysis.mixIn);
-    }
-    autoMix = {
-        out: live, in: next, target, bars, synced,
-        phase: 'waiting', progress: 0, bassSwapped: false,
-        xOut: live === decks.a ? -1 : 1,
-        xIn: live === decks.a ? 1 : -1,
-    };
-    // Put the crossfader on the playing side so the incoming deck starts silent
-    glideControl('crossfader', autoMix.xOut, 400);
-    toast(now ? `Mezclando al Deck ${next.id} en el próximo compás` : `Auto mix armado: entra el Deck ${next.id} a las ${formatTime(target, false)} del ${live.id}`, 'ok');
-    updateAssistant();
-    return true;
-}
-
-function cancelAutoMix(message = 'Auto mix cancelado') {
-    if (!autoMix) return;
-    autoMix = null;
-    toast(message, 'warn');
-    updateAssistant();
-}
-
-// Smoothly move a control over `ms` milliseconds
-const glides = {};
-function glideControl(id, to, ms) {
-    const from = +$(id).value;
-    glides[id] = { from, to, start: performance.now(), ms };
-}
-function tickGlides(nowMs) {
-    Object.entries(glides).forEach(([id, g]) => {
-        const t = clamp((nowMs - g.start) / g.ms, 0, 1);
-        setControl(id, g.from + (g.to - g.from) * t);
-        if (t >= 1) delete glides[id];
-    });
-}
-
-function tickAutoMix() {
-    const m = autoMix;
-    if (!m) return;
-    const { out, in: inc } = m;
-    if (m.phase === 'waiting') {
-        if (!out.isPlaying) { cancelAutoMix('Auto mix cancelado: el deck se detuvo'); return; }
-        const pos = out.getCurrentTime();
-        const dt = (m.target - pos) / out.playbackRate;
-        if (dt <= 0.3) {
-            setControl(`deck-${inc.key}-eq-low`, -26); // incoming bass out until the swap
-            if (!inc.isPlaying) {
-                inc.play(inc.analysis.mixIn, audioCtx.currentTime + Math.max(0.01, dt));
-                if (inc.track) inc.track.played = true;
-            } else if (m.synced) {
-                alignPhase(inc, out);
-            }
-            m.phase = 'mixing';
-            renderLibrary();
-        }
-        return;
-    }
-    // mixing: progress follows the outgoing deck's beats
-    const beats = (out.getCurrentTime() - m.target) / out.beatSec;
-    m.progress = clamp(beats / (m.bars * 4), 0, 1);
-    setControl('crossfader', m.xOut + (m.xIn - m.xOut) * m.progress);
-    if (!m.bassSwapped && m.progress >= 0.5) {
-        m.bassSwapped = true;
-        glideControl(`deck-${out.key}-eq-low`, -26, 300);
-        glideControl(`deck-${inc.key}-eq-low`, 0, 300);
-    }
-    if (m.progress >= 1 || !out.isPlaying) {
-        out.pause();
-        ['low', 'mid', 'high'].forEach(b => setControl(`deck-${out.key}-eq-${b}`, 0));
-        setControl(`deck-${inc.key}-eq-low`, 0);
-        setControl('crossfader', m.xIn);
-        if (out.syncOn) { out.syncOn = false; refreshDeckButtons(out); }
-        autoMix = null;
-        toast(`Mezcla completa: ahora suena el Deck ${inc.id}`, 'ok');
-        renderLibrary();
-        updateAssistant();
-    }
 }
 
 function pickNextTrack(live) {
@@ -1109,6 +1350,7 @@ const KEYMAP = [
     ['ArrowRight', null, 'xfRight', null, 'Crossfader → (Shift = todo a B)'],
     ['ArrowDown', null, 'xfCenter', null, 'Crossfader al centro'],
     ['Enter', null, 'automix', 'automix-btn', 'AUTO MIX · Shift = MIX NOW'],
+    ['KeyT', null, 'guide', 'guide-btn', 'Mezcla GUIADA (tú mueves lo que se ilumina)'],
     ['Escape', null, 'cancel', null, 'Cancelar auto mix / cerrar ventanas'],
     ['KeyG', null, 'prep', 'prep-btn', 'Preparar el siguiente deck'],
     ['Digit4', null, 'pad0', 'pad-0', 'Sampler: Air horn'],
@@ -1214,6 +1456,7 @@ function runAction(m, phase, shift) {
         case 'xfRight': setControl('crossfader', shift ? 1 : clamp(+$('crossfader').value + 0.1, -1, 1)); break;
         case 'xfCenter': setControl('crossfader', 0); break;
         case 'automix': startAutoMix(shift); break;
+        case 'guide': startAutoMix(shift, 'guide'); break;
         case 'cancel':
             if (!$('help-modal').classList.contains('hidden')) $('help-modal').classList.add('hidden');
             else if (!$('converter-modal').classList.contains('hidden')) $('converter-modal').classList.add('hidden');
@@ -1448,7 +1691,7 @@ function setupDeck(deck) {
         if (follower.syncOn) matchTempo(follower, deck, true);
     });
     pitch.addEventListener('dblclick', () => setControl(`deck-${k}-pitch`, 1));
-    wheelSlider(pitch, 0.001);
+    wheelSlider(pitch, 1200);
     $(`deck-${k}-range`).addEventListener('click', () => {
         deck.pitchRange = deck.pitchRange === 0.08 ? 0.16 : 0.08;
         deck.setPitch(clamp(deck.pitch, 1 - deck.pitchRange, 1 + deck.pitchRange));
@@ -1465,7 +1708,7 @@ function setupDeck(deck) {
     $(`deck-${k}-filter`).addEventListener('input', (e) => applyFilter(deck, +e.target.value));
     const vol = $(`deck-${k}-volume`);
     vol.addEventListener('input', () => { if (deck.gainNode) deck.gainNode.gain.setTargetAtTime(+vol.value, audioCtx.currentTime, 0.01); });
-    wheelSlider(vol, 0.03);
+    wheelSlider(vol, 250);
 
     // FX
     document.querySelectorAll(`#deck-${k}-fx-types [data-fx]`).forEach(btn => btn.addEventListener('click', () => {
@@ -1532,7 +1775,7 @@ function setupGlobal() {
     const xf = $('crossfader');
     xf.addEventListener('input', () => applyCrossfader(+xf.value));
     xf.addEventListener('dblclick', () => setControl('crossfader', 0));
-    wheelSlider(xf, 0.05);
+    wheelSlider(xf, 300);
 
     document.querySelectorAll('.knob-container').forEach(setupKnob);
 
@@ -1554,6 +1797,20 @@ function setupGlobal() {
 
     // Assistant
     $('automix-btn').addEventListener('click', () => startAutoMix(false));
+    $('guide-btn').addEventListener('click', () => startAutoMix(false, 'guide'));
+    document.querySelectorAll('[data-mixstyle]').forEach(btn => btn.addEventListener('click', () => {
+        if (autoMix) { toast('Cancela la mezcla en curso para cambiar el estilo', 'warn'); return; }
+        mixStyleSetting = btn.dataset.mixstyle;
+        document.querySelectorAll('[data-mixstyle]').forEach(b => b.classList.toggle('active', b === btn));
+        updateAssistant();
+    }));
+    refreshScrollLabel();
+    $('scroll-toggle').addEventListener('click', () => {
+        Prefs.naturalScroll = !Prefs.naturalScroll;
+        try { localStorage.setItem('webdj-natural-scroll', Prefs.naturalScroll ? '1' : '0'); } catch (e) {}
+        refreshScrollLabel();
+        toast(Prefs.naturalScroll ? 'Scroll natural: desliza hacia arriba para subir las perillas' : 'Scroll clásico: rueda hacia arriba para subir las perillas', 'ok');
+    });
     $('mixnow-btn').addEventListener('click', () => startAutoMix(true));
     $('prep-btn').addEventListener('click', prepareNext);
     $('automix-cancel').addEventListener('click', () => cancelAutoMix());

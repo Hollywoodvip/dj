@@ -10,6 +10,13 @@ Rekordbox-style 3-band waveforms with beat grid, bar/beat counter.
 **Beat FX (per deck):** ECHO, REVERB, FLANGER, PHASER, TRANS, ROLL (with slip),
 synced to the track tempo (1/4 – 4 beats), level/depth, tap = latch, hold = momentary.
 
+**Mix coach:** for every transition it builds a plan — BLEND with EQ (bass swap),
+FILTER SWEEP (for clashing keys) or ECHO OUT (for tempos too far apart, the next track
+drops in on its drop) — with the exact start point, where the next track starts and
+each step bar by bar (which knob, to what value, which effect). **AUTO MIX** plays the
+plan by itself; **GUIDED** (T) lights up the controls you have to move so you learn.
+Tracks are auto-levelled (gain) so loud and quiet songs mix evenly.
+
 **Mix assistant:** every track is analysed for BPM + beat grid, downbeats, musical key
 (Camelot), intro / breakdowns / outro and 8-bar phrases. It recommends where to mix
 out and in, how long, and warns about tempo or key clashes.
@@ -73,5 +80,5 @@ Only download content you own or have permission to use.
 | C | , | Next effect |
 | V | M | Brake (Shift = spinback) |
 
-Global: ← → crossfader · ↓ center · Enter = AUTO MIX · Shift+Enter = MIX NOW ·
+Global: ← → crossfader · ↓ center · Enter = AUTO MIX · Shift+Enter = MIX NOW · T = guided mix ·
 G = prepare next deck · 4–7 = sampler · Esc = cancel · H = help.
