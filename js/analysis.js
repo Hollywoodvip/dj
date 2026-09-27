@@ -7,7 +7,8 @@ const Analysis = (() => {
     // Bump when the analysis changes: saved tracks get re-analysed in the background
     // 6: the outro starts where the lead (vocals/melody = mids + highs) leaves, not where
     //    the kick stops (tech house / melodic techno keep kick + bass to the very end)
-    const VERSION = 6;
+    // 7: dembow check (the 3-3-2 snare made 90–100 BPM reggaeton read as 4/3 faster)
+    const VERSION = 7;
     const FPS = 100;            // feature frames per second
     const FEATURE_RATE = 22050; // analysis sample rate
 
@@ -129,6 +130,17 @@ const Analysis = (() => {
             }
         }
         return best;
+    }
+
+    // Dembow / reggaeton: the 3-3-2 snare repeats every 3/4 of a beat, so the tempo can
+    // come out 4/3 too fast (a 90 BPM perreo read as 120). The kick lands on every real
+    // beat: compare how well the low band repeats at the detected beat vs 3/4 of it
+    function dembowCheck(bpm, lowOnset) {
+        const slow = bpm * 0.75;
+        if (bpm < 108 || slow < 76) return bpm;
+        const ac = autocorrelation(lowOnset, Math.ceil(4 * 60 * FPS / slow) + 2);
+        const score = (b) => { const lag = 60 * FPS / b; return interp(ac, lag) + 0.5 * interp(ac, 2 * lag) + 0.5 * interp(ac, 4 * lag); };
+        return score(slow) > 1.1 * score(bpm) ? slow : bpm;
     }
 
     // Fine tempo + phase: fold the onset envelope over candidate beat periods
@@ -292,7 +304,7 @@ const Analysis = (() => {
        without one (live edits, radio edits) still get at least 16 bars to mix over. */
     function refineOutro(a) {
         if (!a) return a;
-        a.version = VERSION;
+        a.version = Math.max(a.version || 0, 6); // an upgraded v5 still lacks the v7 tempo check
         if (!a.wave || !a.wave[1] || !a.beatSec || a.musicEnd === undefined) return a;
         const bar = 4 * a.beatSec, db = a.downbeat;
         const mid = a.wave[1], high = a.wave[2];
@@ -486,7 +498,7 @@ const Analysis = (() => {
         for (let i = 0; i < low.length; i++) energy[i] = low[i] + 0.8 * mid[i] + 0.5 * high[i];
 
         const onset = onsetEnvelope([low, mid, high]);
-        const guess = knownBpm || estimateTempo(onset);
+        const guess = knownBpm || dembowCheck(estimateTempo(onset), onsetEnvelope([low]));
         const grid = refineGrid(onset, guess, !!knownBpm);
         const bpm = knownBpm || grid.bpm;
         const beatSec = 60 / bpm;

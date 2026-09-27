@@ -443,7 +443,9 @@ async function loadLibraryFromStore() {
 // Tracks analysed by an older version of the analysis get re-analysed quietly
 async function reanalyzeStale() {
     for (const e of library) {
-        if (e.analysis && e.analysis.version === Analysis.VERSION) continue;
+        // v6 → v7 only changes the tempo of dembow tracks: redone when loaded into a deck
+        // (a full background re-analysis of the whole library would load the CPU mid-set)
+        if (e.analysis && e.analysis.version >= 6) continue;
         if (deckList.some(d => d.track === e)) continue;
         try {
             const buf = await new OfflineAudioContext(2, 1, 44100).decodeAudioData(e.bytes.slice(0));
@@ -474,6 +476,13 @@ async function loadEntryToDeck(entry, deck, buffer = null, { onlyIfEmpty = false
     try {
         if (!buffer) buffer = entry.demo ? await generateDemoTrack(entry.demo.bpm, entry.demo.variant) : await decodeBytes(entry.bytes);
         if (!entry.analysis) entry.analysis = await Analysis.analyzeTrack(buffer, entry.demo ? entry.demo.bpm : null);
+        else if (entry.analysis.version < Analysis.VERSION && !entry.bpmFixed && !entry.demo) {
+            // Older analysis (before the dembow check): redo it now that the audio is decoded
+            const before = entry.analysis.bpm;
+            entry.analysis = await Analysis.analyzeTrack(buffer);
+            if (Math.abs(entry.analysis.bpm - before) > 1) toast(`BPM de "${entry.title}" corregido: ${before.toFixed(0)} → ${entry.analysis.bpm.toFixed(0)}`, 'ok');
+            saveEntry(entry);
+        }
         if (token !== deck.loadToken) return false;          // a newer load replaced this one
         if (onlyIfEmpty && (deck.track || deck.isPlaying)) return false;
         if (autoMix && (autoMix.in === deck || autoMix.out === deck)) cancelAutoMix();
@@ -1397,7 +1406,7 @@ function planTransition(live, next, now = false) {
         padSteps();
     } else {
         // Loop the old track's last bar: it holds the music (in time) while you do the cut
-        step(-2, `LOOP 4 del ${LA}: repite su último compás a tiempo mientras haces el corte (así no te apuras)`, [{ type: 'loop', beats: 4 }]);
+        step(-2, `Si llegaste al final del tema: LOOP 4 del ${LA}, repite su último compás a tiempo mientras haces el corte (así no te apuras)`, [{ type: 'loop', beats: 4 }]);
         // Echo on + the old track's bass out: the echo tail stays clean under the new track
         step(-1, `Prende el ECHO del ${LA} (FX ON) y baja su LOW a −26: el eco queda limpio, sin bajo`, [{ type: 'fx', deck: A, ...endFx }, set(`deck-${A}-eq-low`, -26, 0.5)]);
         step(0, `${playText} y pasa el crossfader entero al ${LB}: el eco del ${LA} sigue sonando solo`,
@@ -1882,7 +1891,9 @@ function tickAutoMix() {
         // you want, it's quantized); otherwise it lights one bar before the ideal moment
         const at = isStart && m.mode === 'guide' ? s.at - (plan.style === 'echo' ? 0.5 : 1) : s.at;
         const prepDone = plan.steps.every(p => !p.prep || (p.fired && !(p.pending || []).some(t => !targetReached(t))));
-        const preStart = plan.style === 'echo' && s.at < 0; // loop + echo: lit (in order) as soon as you're ready
+        // Echo + bass out: lit as soon as you're ready. The LOOP only makes sense near the end of
+        // the track (to hold it while you cut), never in the middle of a song: it keeps its time
+        const preStart = plan.style === 'echo' && s.at < 0 && !s.actions.some(a => a.type === 'loop');
         if (barPos < at && !((isStart || preStart) && m.mode === 'guide' && prepDone)) continue;
         if (s.at >= 0 && !m.started && !(isStart && m.mode === 'guide')) continue;
         fireStep(m, s);

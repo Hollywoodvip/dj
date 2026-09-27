@@ -38,6 +38,11 @@ merges them into `historial/` (gitignored) and publishes an orphan-style branch
   → the drop is used only if the old track is loud where you cut, echo level 0.6; ending
   early left the new track EQ-cut (−17 dB) → `afterMixTargets` lights its knobs to 0.
   Mix logs now carry `analysisVersion` (compare v6+ mixes only when tuning the ideal point).
+- Round 3 (screenshots): Pitbull "Culo" (dembow ~90) read as 120 → two dembow tracks
+  planned as an echo out. Analysis v7 `dembowCheck`: if the low band (kick) repeats better at
+  3/4 of the detected tempo, use it (synthetic dembow 88–104 and house 120–140 all correct).
+  v6 tracks are re-checked when loaded into a deck (not in the background, too heavy mid-set).
+  The echo-out LOOP only appears near the end of the track, never mid-song.
 - `mixes.json`: per mix, the plan (style, pace, bars, dropAtEnd, introLoop…), `startedBarsFromIdeal`,
   master level range vs the track alone, warnings shown, `result` (done/early/cancelled) and
   the user's `rating` (good/bad). No audio is ever uploaded.
