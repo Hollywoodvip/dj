@@ -246,7 +246,7 @@
     </main>
 
     <!-- DJ PROFE -->
-    <section id="profe" class="dj-panel rounded-lg p-3 mt-3 border-l-4 border-amber-400 flex items-start gap-3 sticky bottom-2 z-40" style="box-shadow:0 -8px 30px rgba(0,0,0,0.85)">
+    <section id="profe" class="dj-panel rounded-lg px-3 py-2 mt-3 border-l-4 border-amber-400 flex items-start gap-3 sticky bottom-2 z-40" style="box-shadow:0 -8px 30px rgba(0,0,0,0.85)">
         <div class="w-10 h-10 rounded-full bg-amber-950 border border-amber-500/50 flex items-center justify-center shrink-0">
             <i id="profe-icon" class="fa-solid fa-user-graduate text-amber-300 text-xl"></i>
         </div>
@@ -257,6 +257,7 @@
                 <span id="profe-when" class="font-digits text-[10px] text-amber-200"></span>
             </div>
             <div id="profe-text" class="text-xs text-gray-300 mt-0.5"></div>
+            <div id="profe-lit" class="hidden flex flex-wrap items-center gap-1.5 mt-1.5"></div>
             <div id="profe-actions" class="flex flex-wrap gap-2 mt-2"></div>
             <div id="profe-checks" class="hidden flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-gray-800"></div>
         </div>
@@ -414,7 +415,7 @@
         </div>
     </div>
 
-    <div id="toasts" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 items-end pointer-events-none"></div>
+    <div id="toasts" class="fixed top-16 right-4 z-50 flex flex-col gap-2 items-end pointer-events-none"></div>
 
     <script src="js/store.js"></script>
     <script src="js/analysis.js"></script>

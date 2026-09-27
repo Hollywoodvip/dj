@@ -248,7 +248,7 @@ const Profe = (() => {
             const nextStep = autoMix.plan.steps.find(s => !s.fired);
             if (pending) add({ id: `guide-now-${pending.prep ? 'prep' : 'mix'}`, p: 99, icon: pending.prep ? 'fa-list-check' : 'fa-hand-point-right',
                 title: pending.prep ? `PREPARA EL ${autoMix.in.id}` : autoMix.waiting ? 'Te espero' : 'AHORA',
-                text: pending.text + '. Haz clic en lo que brilla en verde (o Espacio).' + (autoMix.waiting ? ' El plan no avanza hasta que lo hagas.' : ''),
+                text: pending.text + '.' + (autoMix.waiting ? ' Te espero: el plan no avanza hasta que lo hagas.' : ''),
                 when: () => (autoMix && !autoMix.started ? `el cambio empieza en ${barsText(Math.max(0, -mixBarPosition(autoMix)))}` : '') });
             else if (nextStep) add({ id: 'guide-next', p: 98, icon: 'fa-hourglass-half', title: 'Lo que viene', text: nextStep.text + '.',
                 when: () => { const b = nextStep.at - mixBarPosition(autoMix); return b > 0 ? `en ${barsText(b)}` : ''; } });
@@ -487,7 +487,7 @@ const Profe = (() => {
     function renderChecks() {
         const box = $('profe-checks');
         if (!box) return;
-        const checks = enabled && audioCtx ? liveChecks() : [];
+        const checks = enabled && audioCtx && !autoMix ? liveChecks() : [];
         lastChecks = checks;
         // Light up what fixes each problem (amber), unless a mix plan is lighting things up
         checkLights = autoMix ? [] : checks.filter(c => c.fix && c.level !== 'ok').flatMap(c =>
@@ -622,6 +622,66 @@ const Profe = (() => {
         render(true);
     }
 
+    /* ---------------- "TOCA:" what is lit right now, by name ---------------- */
+    function targetName(t) {
+        if (t.id === 'crossfader') return 'Crossfader';
+        const m = t.id.match(/^deck-([ab])-(.+)$/);
+        if (!m) return t.id;
+        const D = m[1].toUpperCase();
+        const part = m[2];
+        const names = {
+            'eq-low': 'LOW', 'eq-mid': 'MID', 'eq-high': 'HI', 'filter': 'FILTER', 'pitch': 'PITCH',
+            'play-btn': (t.label || '').startsWith('PAUSA') ? 'PAUSA' : 'PLAY', 'cue-btn': 'CUE', 'fx-on': 'FX ON',
+            'fx-level': 'nivel del FX', 'sync-btn': 'SYNC', 'eq-reset': 'perillas a 0',
+        };
+        if (names[part]) return `${names[part]} del ${D}`;
+        if (part.startsWith('fxt-')) return `${FX_LABELS[part.slice(4)]} del ${D}`;
+        if (part.startsWith('fxb-')) return `beats ${beatLabel(+part.slice(4).replace('_', '.'))} del ${D}`;
+        if (part.startsWith('loop-')) return `loop del ${D}`;
+        return part;
+    }
+
+    let litSig = '';
+    const scrolled = new Set();
+    function renderLit() {
+        const box = $('profe-lit');
+        const list = typeof currentTargets !== 'undefined' ? currentTargets : [];
+        const sig = list.map(t => t.id + (t.value ?? t.label)).join('|');
+        if (sig === litSig) return;
+        litSig = sig;
+        box.innerHTML = '';
+        box.classList.toggle('hidden', !list.length);
+        if (!list.length) { scrolled.clear(); return; }
+        const label = document.createElement('span');
+        label.className = 'text-[10px] font-bold text-emerald-300 tracking-wider mr-1';
+        label.textContent = 'TOCA:';
+        box.appendChild(label);
+        list.forEach(t => {
+            const chip = document.createElement('button');
+            const value = formatTarget(t).replace(' · clic', '').replace('clic', '');
+            chip.className = `px-2 py-0.5 rounded-full border text-[11px] font-bold ${t.warn ? 'border-amber-500/70 text-amber-200 bg-amber-950/50' : 'border-emerald-500/70 text-emerald-200 bg-emerald-950/50'} hover:brightness-125`;
+            chip.textContent = `${targetName(t)}${value && !/^(PLAY|PAUSA|FX ON)/.test(value) ? ' → ' + value : ''}`;
+            chip.title = 'Clic aquí para hacerlo (o en el control que brilla)';
+            chip.addEventListener('click', () => { ensureAudio(); applyTarget(t); });
+            box.appendChild(chip);
+        });
+        const hint = document.createElement('span');
+        hint.className = 'text-[10px] text-gray-500 ml-1';
+        hint.textContent = 'clic aquí o en lo que brilla · Espacio = todo';
+        box.appendChild(hint);
+        // If something lit is hidden (behind this bar or off screen), bring it into view once
+        const bar = $('profe').getBoundingClientRect();
+        for (const t of list) {
+            if (scrolled.has(t.id)) continue;
+            const el = $(t.id);
+            if (!el) continue;
+            scrolled.add(t.id);
+            const r = el.getBoundingClientRect();
+            if (r.bottom > bar.top - 8) { window.scrollBy({ top: r.bottom - bar.top + 24, behavior: 'smooth' }); break; }
+            if (r.top < 0) { window.scrollBy({ top: r.top - 16, behavior: 'smooth' }); break; }
+        }
+    }
+
     function tick() {
         deckList.forEach(d => {
             if (d.fx && d.fx.on && !fxOnSince[d.key]) fxOnSince[d.key] = performance.now();
@@ -629,6 +689,7 @@ const Profe = (() => {
         });
         render();
         renderChecks();
+        renderLit();
         if (enabled) { autoArm(); autoTricks(); }
     }
 

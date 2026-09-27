@@ -1179,7 +1179,8 @@ function planTransition(live, next, now = false) {
     }
 
     /* ---------- TRANSITION (bars counted from the moment the new track comes in) ---------- */
-    const playText = `Dale PLAY al ${LB} en el 1 del compás (si lo aprietas un poco antes o después, entra justo en el compás igual)`;
+    const playText = next.isPlaying ? `El ${LB} ya está sonando: sigue desde el próximo compás`
+        : `Dale PLAY al ${LB} (entra justo en el compás aunque lo aprietes un poco antes o después)`;
     if (style === 'blend') {
         step(0, `${playText} y lleva el crossfader al centro de a poco`, [{ type: 'startIn' }, set('crossfader', 0, q)]);
         // The mids carry the vocals: two singers at once sounds messy, so swap them
@@ -1197,7 +1198,7 @@ function planTransition(live, next, now = false) {
         step(bars, `Crossfader entero al ${LB} (el eco se va apagando solo)`, [set('crossfader', xIn, 0.5)]);
     } else {
         step(-1, `Un compás antes: prende el ECHO del ${LA} (FX ON)`, [{ type: 'fx', deck: A, ...endFx }]);
-        step(0, `${playText} y pasa el crossfader entero al ${LB} de una: el eco del ${LA} sigue sonando y se apaga solo`,
+        step(0, `${playText} y pasa el crossfader entero al ${LB}: el eco del ${LA} sigue sonando solo`,
             [{ type: 'startIn' }, set('crossfader', xIn, 0.25)]);
     }
     const endBar = style === 'echo' ? 2 : bars + 0.5;
@@ -1251,6 +1252,16 @@ function startAutoMix(now = false, mode = 'auto') {
     }
     plan.steps.forEach(s => { s.fired = false; s.pending = []; });
     autoMix = { out: live, in: next, plan, mode, target: plan.target, bars: plan.bars, phase: 'waiting', progress: 0, started: false, startCtx: 0 };
+    if (mode === 'guide' && next.isPlaying) {
+        // It's already playing: the mix starts on the next bar, beats lined up
+        if (plan.synced) alignPhase(next, live);
+        const pos = live.getCurrentTime();
+        autoMix.target = live.nextBarAfter(pos + 0.05 * live.playbackRate);
+        autoMix.startCtx = audioCtx.currentTime + (autoMix.target - pos) / live.playbackRate;
+        autoMix.started = true;
+        autoMix.phase = 'mixing';
+        if (next.track) next.track.played = true;
+    }
     // Crossfader on the playing side so the incoming deck starts silent
     if (mode === 'auto') glideControl('crossfader', plan.xOut, 400);
     toast(mode === 'guide'
