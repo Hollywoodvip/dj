@@ -6,6 +6,8 @@ Serves the DJ app and exposes a YouTube audio extractor backed by yt-dlp:
     GET /api/status                      -> {"ok": true, "ffmpeg": bool}
     GET /api/convert?url=<youtube url>   -> audio bytes (m4a/webm) for the decks
     GET /api/convert?url=...&format=mp3&download=1
+    POST /api/history {tracks, mixes}    -> saves historial/ and publishes it on the
+                                            repo's `historial` branch (no audio)
                                          -> 320 kbps MP3 file (requires ffmpeg)
 
 Run:  pip install -r requirements.txt && python server.py
@@ -127,6 +129,108 @@ def app_version():
     return time.strftime("%d/%m %H:%M", time.localtime(newest))
 
 
+HISTORY_DIR = os.path.join(ROOT, "historial")
+HISTORY_BRANCH = "historial"
+
+
+def _git(*args, env=None, input_text=None, timeout=60):
+    return subprocess.run(["git", "-C", ROOT, *args], capture_output=True, text=True,
+                          input=input_text, timeout=timeout, env=env)
+
+
+def merge_history(tracks, mixes):
+    """Merge what the browser sent with what was saved before (clearing the library
+    in the browser must not erase the history)."""
+    os.makedirs(HISTORY_DIR, exist_ok=True)
+
+    def load(name):
+        try:
+            with open(os.path.join(HISTORY_DIR, name), encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return []
+
+    def track_key(t):
+        return (t.get("url") or "").strip() or f"{t.get('artist', '')} - {t.get('title', '')}".strip().lower()
+
+    merged = {track_key(t): t for t in load("tracks.json") if isinstance(t, dict)}
+    for t in tracks:
+        if isinstance(t, dict):
+            merged[track_key(t)] = t
+    all_tracks = sorted(merged.values(), key=lambda t: (t.get("artist") or "", t.get("title") or ""))
+
+    seen = {}
+    for m in load("mixes.json") + [m for m in mixes if isinstance(m, dict)]:
+        key = f"{m.get('at')}|{(m.get('out') or {}).get('title')}|{(m.get('in') or {}).get('title')}"
+        seen[key] = m  # the newer copy wins (it may carry your 👍/👎)
+    all_mixes = sorted(seen.values(), key=lambda m: m.get("at") or "")
+
+    rated = [m for m in all_mixes if m.get("rating")]
+    readme = (
+        "# Historial de WebDJ\n\n"
+        "Datos de las sesiones reales (sin audio), para mejorar el análisis y el DJ PROFE.\n\n"
+        f"- `tracks.json`: {len(all_tracks)} temas — análisis (BPM, tono, drop, breaks, energía por compás) "
+        "y correcciones del usuario (`bpmDetected` vs `bpm`, hot cues).\n"
+        f"- `mixes.json`: {len(all_mixes)} mezclas — plan del profe, cuándo entró el usuario, nivel de volumen, "
+        f"resultado y calificación ({sum(1 for m in rated if m['rating'] == 'good')} 👍 / "
+        f"{sum(1 for m in rated if m['rating'] == 'bad')} 👎).\n"
+        f"\nActualizado: {time.strftime('%Y-%m-%d %H:%M')}\n"
+    )
+    for name, data in (("tracks.json", all_tracks), ("mixes.json", all_mixes)):
+        with open(os.path.join(HISTORY_DIR, name), "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=1)
+    with open(os.path.join(HISTORY_DIR, "README.md"), "w", encoding="utf-8") as f:
+        f.write(readme)
+    return len(all_tracks), len(all_mixes)
+
+
+def publish_history():
+    """Commit historial/ onto its own branch WITHOUT touching the branch you work on
+    (git plumbing: no checkout, no change to HEAD, so `git pull` keeps working)."""
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0",
+               GIT_AUTHOR_NAME=os.environ.get("GIT_AUTHOR_NAME", "WebDJ"),
+               GIT_AUTHOR_EMAIL=os.environ.get("GIT_AUTHOR_EMAIL", "webdj@localhost"),
+               GIT_COMMITTER_NAME=os.environ.get("GIT_COMMITTER_NAME", "WebDJ"),
+               GIT_COMMITTER_EMAIL=os.environ.get("GIT_COMMITTER_EMAIL", "webdj@localhost"))
+    try:
+        entries = []
+        for name in sorted(os.listdir(HISTORY_DIR)):
+            path = os.path.join(HISTORY_DIR, name)
+            if not os.path.isfile(path):
+                continue
+            blob = _git("hash-object", "-w", path, env=env)
+            if blob.returncode != 0:
+                return False, blob.stderr.strip()[-200:]
+            entries.append(f"100644 blob {blob.stdout.strip()}\t{name}")
+        tree = _git("mktree", env=env, input_text="\n".join(entries) + "\n")
+        if tree.returncode != 0:
+            return False, tree.stderr.strip()[-200:]
+        tree_id = tree.stdout.strip()
+        parent = None
+        fetched = _git("fetch", "--quiet", "origin", f"{HISTORY_BRANCH}:refs/remotes/origin/{HISTORY_BRANCH}", env=env)
+        if fetched.returncode == 0:
+            head = _git("rev-parse", f"refs/remotes/origin/{HISTORY_BRANCH}", env=env)
+            if head.returncode == 0:
+                parent = head.stdout.strip()
+                same = _git("rev-parse", f"{parent}^{{tree}}", env=env)
+                if same.returncode == 0 and same.stdout.strip() == tree_id:
+                    return True, "sin cambios desde la última vez"
+        args = ["commit-tree", tree_id, "-m", f"Historial {time.strftime('%Y-%m-%d %H:%M')}"]
+        if parent:
+            args[2:2] = ["-p", parent]
+        commit = _git(*args, env=env)
+        if commit.returncode != 0:
+            return False, commit.stderr.strip()[-200:]
+        push = _git("push", "--quiet", "origin", f"{commit.stdout.strip()}:refs/heads/{HISTORY_BRANCH}", env=env, timeout=120)
+        if push.returncode != 0:
+            err = push.stderr.strip()
+            hint = "sin permiso para subir a GitHub desde esta terminal" if ("403" in err or "Authentication" in err or "could not read" in err) else err[-200:]
+            return False, hint
+        return True, "ok"
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, str(e)
+
+
 SCRIPT_TAG = re.compile(r'src="(js/[\w.-]+\.js)"')
 
 
@@ -154,7 +258,22 @@ class DJHandler(SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/mp3":
             return self.handle_mp3(urllib.parse.parse_qs(parsed.query))
+        if parsed.path == "/api/history":
+            return self.handle_history()
         return self.send_json(404, {"error": "Not found"})
+
+    def handle_history(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > 50 * 1024 * 1024:
+            return self.send_json(400, {"error": "Historial vacío o demasiado grande"})
+        try:
+            data = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return self.send_json(400, {"error": "Historial inválido"})
+        tracks, mixes = merge_history(data.get("tracks") or [], data.get("mixes") or [])
+        pushed, message = publish_history()
+        print(f"Historial: {tracks} temas, {mixes} mezclas -> {'rama historial en GitHub' if pushed else 'solo local: ' + message}")
+        return self.send_json(200, {"ok": True, "tracks": tracks, "mixes": mixes, "pushed": pushed, "message": message})
 
     def handle_mp3(self, query):
         """Convert a recorded mix (webm/m4a from the browser) to a 320 kbps MP3."""

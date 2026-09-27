@@ -761,6 +761,8 @@ function setTrackBpm(deck, bpm, anchor = null) {
     if (!a) return;
     bpm = Math.round(bpm * 10) / 10;
     if (bpm < 60 || bpm > 200) { toast(`${bpm.toFixed(0)} BPM no tiene sentido para mezclar (entre 60 y 200)`, 'warn'); return; }
+    // Keep what the analysis found the first time: the corrections teach us where it fails
+    if (deck.track && deck.track.bpmDetected === undefined) deck.track.bpmDetected = a.bpm;
     a.bpm = bpm;
     a.beatSec = 60 / bpm;
     if (anchor !== null) {
@@ -1445,6 +1447,7 @@ function startAutoMix(now = false, mode = 'auto') {
     }
     plan.steps.forEach(s => { s.fired = false; s.pending = []; });
     autoMix = { out: live, in: next, plan, mode, target: plan.target, bars: plan.bars, phase: 'waiting', progress: 0, started: false, startCtx: 0 };
+    if (typeof Historial !== 'undefined') Historial.mixStarted(autoMix);
     if (mode === 'guide' && next.isPlaying) {
         // It's already playing: the mix starts on the next bar, beats lined up
         if (plan.synced) alignPhase(next, live);
@@ -1453,6 +1456,7 @@ function startAutoMix(now = false, mode = 'auto') {
         autoMix.startCtx = audioCtx.currentTime + (autoMix.target - pos) / live.playbackRate;
         autoMix.started = true;
         autoMix.phase = 'mixing';
+        if (typeof Historial !== 'undefined') Historial.mixCameIn(autoMix);
         if (next.track) next.track.played = true;
     }
     // Crossfader on the playing side so the incoming deck starts silent
@@ -1468,6 +1472,7 @@ function cancelAutoMix(message = 'Mezcla cancelada') {
     if (!autoMix) return;
     if (typeof Profe !== 'undefined') Profe.onCancel();
     const { out, in: inc, plan } = autoMix;
+    if (typeof Historial !== 'undefined') Historial.mixEnded(autoMix, 'cancelled');
     autoMix = null;
     if (out.fx && out.fx.on) out.fx.setOn(false);
     if (plan.introLoop && inc.loop.active) { inc.exitLoop(); refreshDeckButtons(inc); }
@@ -1734,6 +1739,7 @@ function finishAutoMix(early = false) {
     const m = autoMix;
     if (!m) return;
     const { out, in: inc, plan } = m;
+    if (typeof Historial !== 'undefined') Historial.mixEnded(m, early ? 'early' : 'done');
     if (out.isPlaying && m.mode === 'auto') out.pause();
     if (out.fx.on) out.fx.setOn(false);
     if (out.loop.active && !out.isPlaying) out.exitLoop(); // the stretch loop is done
@@ -1778,6 +1784,7 @@ function guidedStart(m) {
     }
     m.startCtx = audioCtx.currentTime + dt;
     m.pausedBars = 0;
+    if (typeof Historial !== 'undefined') Historial.mixCameIn(m);
     inc.play(plan.inStart, m.startCtx);
     if (inc.track) inc.track.played = true;
     m.started = true;
@@ -1808,6 +1815,7 @@ function tickAutoMix() {
             }
             m.started = true;
             m.phase = 'mixing';
+            if (typeof Historial !== 'undefined') Historial.mixCameIn(m);
             renderLibrary();
         }
     }
@@ -2995,6 +3003,7 @@ window.addEventListener('DOMContentLoaded', () => {
     checkServer();
     Profe.init();
     Cue.init();
+    Historial.init();
     loadLibraryFromStore();
     loadPadSamples();
     requestAnimationFrame(frame);

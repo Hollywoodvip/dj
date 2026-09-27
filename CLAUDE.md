@@ -18,6 +18,18 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
   locally built CSS when a screenshot is needed.
 - Syntax check: `node -e "new Function(require('fs').readFileSync('js/app.js','utf8'))"`.
 
+## Real-session history (read this before tuning analysis or the profe)
+The user shares their sessions with **COMPARTIR HISTORIAL** (library header): `server.py`
+merges them into `historial/` (gitignored) and publishes an orphan-style branch
+**`historial`** with git plumbing (never touches the working branch). Read it with
+`git fetch origin historial && git show origin/historial:tracks.json` (and `mixes.json`).
+- `tracks.json`: per track, the analysis (bpm, key, firstBeat/downbeat, mixIn, introEnd,
+  breakdowns, outroStart, musicEnd…), `energyPerBar` {low,mid,high}, the user's hot `cues`,
+  and `bpmDetected` vs `bpm` (+ `bpmFixed`) = where BPM detection failed.
+- `mixes.json`: per mix, the plan (style, pace, bars, dropAtEnd, introLoop…), `startedBarsFromIdeal`,
+  master level range vs the track alone, warnings shown, `result` (done/early/cancelled) and
+  the user's `rating` (good/bad). No audio is ever uploaded.
+
 ## Files (classic scripts sharing globals, loaded in this order)
 - `js/store.js` — IndexedDB store for the library (tracks with bytes, analysis,
   `cues`, `bpmFixed`). Bump `Analysis.VERSION` when the analysis changes: stale
@@ -42,6 +54,8 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
   On a MacBook the internal speakers and the headphone jack are ONE output (plugging
   headphones mutes the speakers and 'default' becomes the jack): `sameOutput()` resolves
   'default' by groupId and refuses/warns when speakers and headphones are the same device.
+- `js/history.js` — `Historial`: mix log (localStorage `webdj-mixlog`, hooks in
+  startAutoMix / guidedStart / finish / cancel, 👍/👎 in the after-mix tip) + export.
 - `js/profe.js` — **DJ PROFE**: tips from the musical context, tricks timed to
   drops, live review chips ("TU MEZCLA"), modes CONSEJOS / GUIADO / AUTOMÁTICO.
 

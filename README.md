@@ -42,6 +42,11 @@ jack) separately. CUE A / CUE B send a channel only to your headphones; CUE ↔ 
 blends in what the crowd hears. Chrome needs microphone permission once, only to show
 the device names.
 
+**Share your history:** COMPARTIR HISTORIAL (library) saves the analysis of your tracks
+(never the audio) and how your mixes went (with your 👍/👎) in `historial/` and publishes
+it on the repo's `historial` branch, so the analysis and the DJ PROFE can be tuned with
+real sessions. It needs `git push` permission from that terminal.
+
 **Also:** 8 sampler pads that land on the beat by themselves (riser and snare roll end exactly on the drop; impact, reverse cymbal, downlifter, sub drop, stab in the track's key, air horn), and you can drag your own .wav/.mp3 onto any pad (saved in the browser), library with match stars,
 keyboard shortcuts for everything (press **H** in the app).
 

@@ -270,7 +270,11 @@ const Profe = (() => {
             const { out, in: inc } = lastMixDone;
             add({ id: `after-mix-${Math.round(lastMixDone.at)}`, p: 96, icon: 'fa-flag-checkered', title: '¡Mezcla lista!',
                 text: `Así queda: Deck ${out.id} en pausa con sus perillas en 0, crossfader del lado ${inc.id}. Ahora suena el ${inc.id} (su pitch vuelve a 0% de a poco). Siguiente paso: carga otro tema en el ${out.id}.`,
-                actions: [{ label: 'Poner todo en 0', icon: 'fa-rotate-left', kind: 'auto', run: () => { resetChannel(out); resetChannel(inc); } }] });
+                actions: [
+                    { label: 'Sonó bien', icon: 'fa-thumbs-up', kind: 'auto', run: () => Historial.rateLast('good') },
+                    { label: 'Sonó mal', icon: 'fa-thumbs-down', kind: 'show', run: () => Historial.rateLast('bad') },
+                    { label: 'Poner todo en 0', icon: 'fa-rotate-left', kind: 'auto', run: () => { resetChannel(out); resetChannel(inc); } },
+                ] });
         }
 
         if (!live.isPlaying) {
@@ -528,6 +532,7 @@ const Profe = (() => {
         level.lowSince = diff !== null && diff < -8 ? level.lowSince || now : 0;
         level.highSince = diff !== null && diff > 5 ? level.highSince || now : 0;
         level.diff = diff;
+        if (autoMix && autoMix.started && typeof Historial !== 'undefined') Historial.mixLevel(autoMix, diff);
         level.mixing = mixing;
     }
 
@@ -570,6 +575,7 @@ const Profe = (() => {
         const checks = enabled && audioCtx ? (autoMix ? [] : liveChecks()).concat(levelChecks()) : [];
         lastChecks = checks;
         // Light up what fixes each problem (amber); during a mix plan only the volume fixes
+        if (autoMix && typeof Historial !== 'undefined') checks.filter(c => c.level !== 'ok').forEach(c => Historial.mixWarning(autoMix, c.text.replace(/\(.*\)/, '').trim()));
         checkLights = checks.filter(c => c.fix && c.level !== 'ok' && (!autoMix || c.mix)).flatMap(c =>
             (c.fix.light || []).concat((c.fix.targets || []).map(t => ({ ...t }))).map(t => ({ ...t, warn: true })));
         const ls = checkLights.map(t => t.id + (t.value ?? t.label)).join('|');
