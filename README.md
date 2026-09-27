@@ -42,7 +42,7 @@ jack) separately. CUE A / CUE B send a channel only to your headphones; CUE ↔ 
 blends in what the crowd hears. Chrome needs microphone permission once, only to show
 the device names.
 
-**STEMS (voice / drums / bass / melody):** `pip install demucs` (big: PyTorch, and the
+**STEMS (voice / drums / bass / melody):** `pip install demucs numpy` (big: PyTorch, and the
 first separation downloads the model, ~80 MB). Then SEPARAR on a deck splits the track
 (1–3 min, cached per track); VOZ / BAT / BAJO / MEL turn each part on and off, and the
 DJ PROFE guides two new mixes: STEMS (part by part) and MASHUP (one track's voice over

@@ -52,6 +52,25 @@ HAS_FFMPEG = shutil.which("ffmpeg") is not None
 # yt-dlp needs an external JavaScript runtime to unlock YouTube's audio streams
 HAS_JS_RUNTIME = any(shutil.which(r) for r in ("deno", "node", "bun", "qjs"))
 HAS_DEMUCS = importlib.util.find_spec("demucs") is not None
+DEMUCS_ERROR = None  # set by check_demucs() if it's installed but can't run
+
+
+def check_demucs():
+    """Installed isn't enough: demucs 4.1.0 on Apple Silicon forgets numpy, for example.
+    Import it for real (in the background: PyTorch takes a few seconds to load)."""
+    global DEMUCS_ERROR
+    try:
+        r = subprocess.run([sys.executable, "-c", "import numpy, demucs.separate"], capture_output=True, text=True, timeout=180)
+    except (OSError, subprocess.SubprocessError) as e:
+        DEMUCS_ERROR = str(e)
+        return
+    if r.returncode == 0:
+        print("Demucs OK: STEMS (voz / batería / bajo / melodía) disponibles")
+        return
+    missing = re.findall(r"No module named '([\w.]+)'", r.stderr)
+    fix = f"pip install {missing[-1].split('.')[0]}" if missing else "pip install -U demucs numpy"
+    DEMUCS_ERROR = f"Demucs está instalado pero no funciona ({(r.stderr.strip().splitlines() or ['?'])[-1][:160]}). En la terminal: {fix} y reinicia python server.py"
+    print(f"WARNING: {DEMUCS_ERROR}")
 STEMS_DIR = os.path.join(ROOT, "stems-cache")
 STEM_NAMES = ("vocals", "drums", "bass", "other")
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
@@ -364,7 +383,7 @@ class DJHandler(SimpleHTTPRequestHandler):
         job = STEM_JOBS.get(h)
         if job:
             return self.send_json(200, {k: job.get(k) for k in ("status", "progress", "message")})
-        return self.send_json(200, {"status": "none", "available": HAS_DEMUCS})
+        return self.send_json(200, {"status": "none", "available": HAS_DEMUCS and not DEMUCS_ERROR, "error": DEMUCS_ERROR})
 
     def handle_stems_start(self, query):
         h = self.stem_hash(query)
@@ -375,8 +394,11 @@ class DJHandler(SimpleHTTPRequestHandler):
         job = STEM_JOBS.get(h)
         if job and job.get("status") in ("queued", "working"):
             return self.send_json(200, {k: job.get(k) for k in ("status", "progress", "message")})
-        if not HAS_DEMUCS and not getattr(separate, "stub", False):  # tests swap in a stub separator
-            return self.send_json(500, {"error": "Demucs no está instalado. En la terminal: pip install demucs (y reinicia python server.py)"})
+        if not getattr(separate, "stub", False):  # tests swap in a stub separator
+            if not HAS_DEMUCS:
+                return self.send_json(500, {"error": "Demucs no está instalado. En la terminal: pip install demucs numpy (y reinicia python server.py)"})
+            if DEMUCS_ERROR:
+                return self.send_json(500, {"error": DEMUCS_ERROR})
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0 or length > 400 * 1024 * 1024:
             return self.send_json(400, {"error": "Audio vacío o demasiado grande"})
@@ -543,7 +565,9 @@ def main():
         print("NOTE: ffmpeg not found. Decks work fine, but 'Download MP3' is disabled.")
     if not HAS_DEMUCS:
         print("NOTE: Demucs not installed: STEMS (voz / batería / bajo / melodía) disabled.")
-        print("      To enable them: pip install demucs   (first separation downloads the model, ~80 MB)")
+        print("      To enable them: pip install demucs numpy   (first separation downloads the model, ~80 MB)")
+    else:
+        threading.Thread(target=check_demucs, daemon=True).start()
 
     try:
         server = ThreadingHTTPServer((args.host, args.port), DJHandler)
