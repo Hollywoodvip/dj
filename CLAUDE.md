@@ -85,6 +85,10 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
   preparation is done PLAY is available right away ("entra cuando quieras"); the
   ideal moment is only a recommendation with a countdown. Nothing moves by itself
   in guided mode; AUTO mode does the same steps by itself.
+- **Guided order:** the moves of the step that starts the new track (crossfader…) only
+  light after it's playing (`afterStart`). ECHO OUT (tempos > 6% apart): ECHO ON + the
+  old track's LOW −26 first, then PLAY, then the crossfader. Auto-scroll to lit controls
+  is only for the plan's steps (never for optional pad suggestions: the page jumped).
 - **Mix map:** while a mix is armed, `mixMap` draws it on the waveforms (green zone +
   ENTRA / BAJOS / FX / TODO AL / PAUSA on the outgoing deck, ENTRA AQUÍ on the incoming),
   the phrase line counts down to the next mark, and `#xf-plan` shows where the plan

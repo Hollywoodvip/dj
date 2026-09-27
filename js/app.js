@@ -1363,7 +1363,8 @@ function planTransition(live, next, now = false) {
             [set(`deck-${B}-eq-low`, 0, 0.25), set(`deck-${A}-eq-low`, -26, 0.25), set('crossfader', xIn, 1)]);
         else step(bars, `Crossfader entero al ${LB} (el eco se va apagando solo)`, [set('crossfader', xIn, 1)]);
     } else {
-        step(-1, `Un compás antes: prende el ECHO del ${LA} (FX ON)`, [{ type: 'fx', deck: A, ...endFx }]);
+        // Echo on + the old track's bass out: the echo tail stays clean under the new track
+        step(-1, `Prende el ECHO del ${LA} (FX ON) y baja su LOW a −26: el eco queda limpio, sin bajo`, [{ type: 'fx', deck: A, ...endFx }, set(`deck-${A}-eq-low`, -26, 0.5)]);
         step(0, `${playText} y pasa el crossfader entero al ${LB}: el eco del ${LA} sigue sonando solo`,
             [{ type: 'startIn' }, set('crossfader', xIn, 0.25)]);
     }
@@ -1481,7 +1482,11 @@ function fireStep(m, step) {
     step.actions.forEach(a => {
         if (a.type === 'set') {
             if (m.mode === 'auto') glideControl(a.id, a.value, a.glide * mixBarSeconds(m) * 1000);
-            else { const t = { id: a.id, value: a.value, glide: a.glide, group }; group.push(t); step.pending.push(t); }
+            else {
+                // In the step that starts the new track, the other moves light up once it's playing
+                const t = { id: a.id, value: a.value, glide: a.glide, group, afterStart: step.actions.some(x => x.type === 'startIn') };
+                group.push(t); step.pending.push(t);
+            }
         } else if (a.type === 'fxPrep') {
             const d = decks[a.deck];
             if (m.mode === 'auto') {
@@ -1511,7 +1516,7 @@ function fireStep(m, step) {
             else step.pending.push({ id: `deck-${inc.key}-pfl`, label: 'PRENDER · clic', check: () => Cue.pfl(inc), run: () => { if (!Cue.pfl(inc)) Cue.toggle(inc); } });
         } else if (a.type === 'startIn') {
             const inc = m.in;
-            if (m.mode === 'guide' && !m.started) step.pending.push({ id: `deck-${inc.key}-play-btn`, label: 'PLAY en el 1 · clic', check: () => m.started, run: () => { if (!m.started) togglePlay(inc); } });
+            if (m.mode === 'guide' && !m.started) step.pending.push({ id: `deck-${inc.key}-play-btn`, label: 'PLAY en el 1 · clic', startTarget: true, check: () => m.started, run: () => { if (!m.started) togglePlay(inc); } });
         } else if (a.type === 'stopOut') {
             if (m.out.isPlaying) m.out.pause();
         } else if (a.type === 'pauseOut') {
@@ -1578,10 +1583,10 @@ function refreshCoachTargets() {
     const m = autoMix;
     if (!m) { setCoachTargets([]); return; }
     const targets = m.loopTarget ? [m.loopTarget] : [];
-    m.plan.steps.forEach(s => {
-        s.pending = (s.pending || []).filter(t => !targetReached(t));
-        targets.push(...s.pending);
-    });
+    m.plan.steps.forEach(s => { s.pending = (s.pending || []).filter(t => !targetReached(t)); });
+    // Echo out, guided: first the echo (and the bass out), then PLAY, then the crossfader
+    const echoPending = m.plan.style === 'echo' && !m.started && m.plan.steps.some(s => s.fired && s.actions.some(a => a.type === 'fx') && s.pending.length);
+    m.plan.steps.forEach(s => targets.push(...s.pending.filter(t => !(t.afterStart && !m.started) && !(t.startTarget && echoPending))));
     setCoachTargets(targets);
 }
 
@@ -1782,7 +1787,8 @@ function tickAutoMix() {
         // you want, it's quantized); otherwise it lights one bar before the ideal moment
         const at = isStart && m.mode === 'guide' ? s.at - (plan.style === 'echo' ? 0.5 : 1) : s.at;
         const prepDone = plan.steps.every(p => !p.prep || (p.fired && !(p.pending || []).some(t => !targetReached(t))));
-        if (barPos < at && !(isStart && m.mode === 'guide' && prepDone)) continue;
+        const echoFx = plan.style === 'echo' && s.at < 0 && s.actions.some(a => a.type === 'fx');
+        if (barPos < at && !((isStart || echoFx) && m.mode === 'guide' && prepDone)) continue;
         if (s.at >= 0 && !m.started && !(isStart && m.mode === 'guide')) continue;
         fireStep(m, s);
     }
@@ -2512,11 +2518,22 @@ function setupDeck(deck) {
     hold(`deck-${k}-fx-on`, () => { ensureAudio(); fxKey(deck, 'down'); }, () => { if (fxHold[k]) fxKey(deck, 'up'); });
 
     // Overview click = seek
-    $(`deck-${k}-overview`).addEventListener('click', (e) => {
+    // Overview: click or hold and drag to move through the track
+    const ov = $(`deck-${k}-overview`);
+    let ovDrag = false, ovLast = 0;
+    const ovSeek = (e, force) => {
         if (!deck.audioBuffer) return;
-        const r = e.currentTarget.getBoundingClientRect();
-        deck.seek((e.clientX - r.left) / r.width * deck.duration);
-    });
+        const now = performance.now();
+        if (!force && now - ovLast < 60) return; // don't restart the audio on every pixel
+        ovLast = now;
+        const r = ov.getBoundingClientRect();
+        deck.seek(clamp((e.clientX - r.left) / r.width, 0, 1) * deck.duration);
+    };
+    ov.addEventListener('pointerdown', (e) => { ensureAudio(); ovDrag = true; ov.setPointerCapture(e.pointerId); ovSeek(e, true); });
+    ov.addEventListener('pointermove', (e) => { if (ovDrag) ovSeek(e, false); });
+    const ovEnd = (e) => { if (!ovDrag) return; ovDrag = false; ovSeek(e, true); };
+    ov.addEventListener('pointerup', ovEnd);
+    ov.addEventListener('pointercancel', () => { ovDrag = false; });
 
     // Jog wheel: playing = pitch bend, paused = scrub
     const jog = $(`deck-${k}-jog`);

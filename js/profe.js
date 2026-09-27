@@ -251,8 +251,9 @@ const Profe = (() => {
             const pending = autoMix.plan.steps.filter(s => s.fired && s.pending && s.pending.length).slice(-1)[0];
             const nextStep = autoMix.plan.steps.find(s => !s.fired);
             const ready = pending && !pending.prep && !autoMix.started && pending.actions.some(a => a.type === 'startIn');
+            const echoOut = autoMix.plan.style === 'echo';
             if (ready) add({ id: 'guide-ready', p: 99, icon: 'fa-play', title: `¡LISTO! Entra con el ${autoMix.in.id} cuando quieras`,
-                text: `Todo preparado. Dale PLAY al ${autoMix.in.id} cuando quieras: entra justo en el compás. El momento ideal es cuando el contador llegue a 0 (${formatTime(autoMix.target, false)} del ${autoMix.out.id}), pero puedes entrar antes si la gente ya quiere cambio.`,
+                text: `${echoOut ? `Esta mezcla es un ECHO OUT${autoMix.plan.synced ? '' : ` (los tempos ${autoMix.out.effectiveBpm.toFixed(0)} y ${autoMix.in.bpm.toFixed(0)} BPM están muy lejos para mezclarlos encima)`}: cuando quieras, prende el ECHO del ${autoMix.out.id} y baja su LOW (brillan), y apenas suene el eco dale PLAY al ${autoMix.in.id}; después pasas el crossfader entero. Para una mezcla larga con perillas elige un tema de tempo parecido (★ en la librería).` : `Todo preparado. Dale PLAY al ${autoMix.in.id} cuando quieras: entra justo en el compás.`} El momento ideal es cuando el contador llegue a 0 (${formatTime(autoMix.target, false)} del ${autoMix.out.id}), pero puedes entrar antes si la gente ya quiere cambio.`,
                 when: () => (autoMix && !autoMix.started ? `momento ideal en ${barsText(Math.max(0, -mixBarPosition(autoMix)))}` : '') });
             else if (pending) add({ id: `guide-now-${pending.prep ? 'prep' : 'mix'}`, p: 99, icon: pending.prep ? 'fa-list-check' : 'fa-hand-point-right',
                 title: pending.prep ? `PREPARA EL ${autoMix.in.id}` : autoMix.waiting ? 'Te espero' : 'AHORA',
@@ -756,7 +757,7 @@ const Profe = (() => {
         // If something lit is hidden (behind this bar or off screen), bring it into view once
         const bar = $('profe').getBoundingClientRect();
         for (const t of list) {
-            if (scrolled.has(t.id)) continue;
+            if (scrolled.has(t.id) || t.warn || t.id.startsWith('pad-')) continue;
             const el = $(t.id);
             if (!el) continue;
             scrolled.add(t.id);
