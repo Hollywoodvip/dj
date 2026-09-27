@@ -360,12 +360,15 @@
                 <span class="font-bold text-sm text-white">LIBRARY</span>
                 <span id="library-count" class="text-[10px] text-gray-500"></span>
                 <input id="lib-search" type="search" placeholder="Buscar tema o artista…" class="bg-gray-900 border border-gray-700 rounded px-2 py-0.5 text-xs w-52 text-gray-200 placeholder-gray-500">
+                <button id="set-build" class="mini-btn !text-emerald-300" title="Arma el orden de la noche con los temas de la carpeta abierta: previa → subida → peak → cierre, tono y tempo que combinan">ARMAR SET</button>
+                <button id="stems-batch" class="mini-btn !text-violet-300" title="Separa en STEMS todos los temas de la carpeta abierta, uno tras otro (1–3 min cada uno, queda guardado)">SEPARAR CARPETA</button>
                 <button id="history-share" class="mini-btn" title="Guarda el análisis de tus temas (sin el audio) y cómo te fueron las mezclas, y lo sube a la rama 'historial' del repo para que el profe aprenda">COMPARTIR HISTORIAL</button>
                 <button id="library-clear" class="mini-btn hidden" title="Borra todos los temas guardados en este navegador">BORRAR TODO</button>
             </div>
             <span class="text-[10px] text-gray-400"><i class="fa-solid fa-star text-emerald-400"></i> = combina con lo que está sonando (tempo + tonalidad)</span>
         </div>
         <div id="lib-folders" class="flex flex-wrap gap-1 mb-2"></div>
+        <div id="set-info" class="hidden flex flex-wrap items-center gap-2 text-[11px] mb-2 px-2 py-1 rounded bg-emerald-950/30 border border-emerald-800/50"></div>
         <div class="max-h-64 overflow-y-auto scrollbar-thin">
             <table class="w-full text-xs">
                 <thead class="text-[10px] text-gray-500 text-left sticky top-0 bg-[#0f1116]">
@@ -482,5 +485,6 @@
     <script src="js/cue.js"></script>
     <script src="js/history.js"></script>
     <script src="js/stems.js"></script>
+    <script src="js/setlist.js"></script>
 </body>
 </html>

@@ -579,8 +579,10 @@ function renderFolderTabs() {
     library.forEach(e => { const f = trackFolder(e); counts[f] = (counts[f] || 0) + 1; });
     const { live } = liveAndNext();
     const sug = live && live.track ? suggestions(live).length : 0;
-    const tabs = [['all', `TODOS (${library.length})`]].concat(sug ? [['sug', `★ SUGERIDOS (${sug})`]] : []).concat(libraryFolders().filter(f => counts[f] || !GENRES[f]).map(f => [f, `${folderLabel(f)} (${counts[f] || 0})`]));
+    const setTab = typeof Setlist !== 'undefined' && Setlist.active() ? [['set', `🎚 SET (${Setlist.entries().length})`]] : [];
+    const tabs = [['all', `TODOS (${library.length})`]].concat(setTab, sug ? [['sug', `★ SUGERIDOS (${sug})`]] : []).concat(libraryFolders().filter(f => counts[f] || !GENRES[f]).map(f => [f, `${folderLabel(f)} (${counts[f] || 0})`]));
     if (libFolder !== 'all' && libFolder !== 'sug' && !tabs.some(t => t[0] === libFolder)) libFolder = 'all';
+    if (libFolder === 'sug' && !sug) libFolder = 'all';
     box.innerHTML = '';
     tabs.forEach(([f, label]) => {
         const b = document.createElement('button');
@@ -589,6 +591,16 @@ function renderFolderTabs() {
         b.onclick = () => { libFolder = f; try { localStorage.setItem('webdj-lib-folder', f); } catch (e) {} renderLibrary(); };
         box.appendChild(b);
     });
+}
+
+// The tracks the library shows right now (folder / SUGERIDOS / SET + search)
+function currentLibraryList(sugList = null) {
+    const q = libSearch.trim().toLowerCase();
+    let pool = library;
+    if (libFolder === 'sug') { const { live } = liveAndNext(); pool = (sugList || (live && live.track ? suggestions(live) : [])).map(x => x.e); }
+    else if (libFolder === 'set') pool = typeof Setlist !== 'undefined' ? Setlist.entries() : [];
+    return pool.filter(e => (['all', 'sug', 'set'].includes(libFolder) || trackFolder(e) === libFolder)
+        && (!q || `${e.title} ${e.artist}`.toLowerCase().includes(q)));
 }
 
 function renderLibrary() {
@@ -600,12 +612,12 @@ function renderLibrary() {
         body.innerHTML = '<tr><td colspan="8" class="py-3 text-center text-gray-500">Vacía. Extrae temas de YouTube o arrastra archivos aquí abajo.</td></tr>';
         return;
     }
-    const q = libSearch.trim().toLowerCase();
     const sugList = live && live.track ? suggestions(live) : [];
     const sugSet = new Map(sugList.map(x => [x.e, x.s]));
-    const pool = libFolder === 'sug' ? sugList.map(x => x.e) : library;
-    const shown = pool.filter(e => (libFolder === 'all' || libFolder === 'sug' || trackFolder(e) === libFolder)
-        && (!q || `${e.title} ${e.artist}`.toLowerCase().includes(q)));
+    const shown = currentLibraryList(sugList);
+    const inSet = libFolder === 'set';
+    const q = libSearch.trim();
+    if (typeof Setlist !== 'undefined') Setlist.renderHeader();
     body.innerHTML = shown.length ? '' : `<tr><td colspan="8" class="py-3 text-center text-gray-500">${q ? `Nada con "${libSearch}"` : 'Esta carpeta está vacía: arrastra temas aquí abajo con la carpeta abierta'}.</td></tr>`;
     shown.forEach((entry, i) => {
         const a = entry.analysis;
@@ -632,6 +644,16 @@ function renderLibrary() {
         tr.children[1].children[0].textContent = entry.title;
         tr.children[1].children[1].textContent = entry.artist + (entry.played && !entry.lastPlayedAt ? ' · ya sonó' : entry.lastPlayedAt ? ` · sonó ${agoText(entry.lastPlayedAt)}` : '');
         if (sg) tr.children[1].children[0].insertAdjacentHTML('afterbegin', '<span class="reco-chip">RECOMENDADO</span>');
+        if (entry.stemsReady) tr.children[1].children[0].insertAdjacentHTML('beforeend', ' <i class="fa-solid fa-layer-group text-violet-300 text-[10px]" title="Ya separado en STEMS"></i>');
+        if (inSet) {
+            // Set order: energy bar + why it follows the previous one
+            const si = Setlist.entries().indexOf(entry);
+            const done = entry.played || (entry.lastPlayedAt && playedRecently(entry));
+            tr.children[0].textContent = si + 1;
+            tr.children[1].children[1].insertAdjacentHTML('beforeend', ` · <span class="text-emerald-300 font-mono">${Setlist.bar(Setlist.energyAt(si) || 0)}</span> <span class="text-gray-400">${Setlist.why(si)}</span>`);
+            if (Setlist.next() === entry) tr.classList.add('lib-reco');
+            if (done) tr.classList.add('opacity-50');
+        }
         const sel = tr.querySelector('[data-folder]');
         const cur = trackFolder(entry);
         libraryFolders().forEach(f => sel.add(new Option(folderLabel(f) + (!entry.folder && f === cur ? ' (auto)' : ''), f)));
@@ -2893,6 +2915,7 @@ function setupDeck(deck) {
 function setupGlobal() {
     $('audio-init-btn').addEventListener('click', ensureAudio);
     $('rec-btn').addEventListener('click', toggleRecording);
+    Setlist.init();
     $('lib-search').addEventListener('input', (e) => { libSearch = e.target.value; renderLibrary(); });
     $('library-clear').addEventListener('click', async () => {
         if (!confirm('¿Borrar TODOS los temas guardados en este navegador? No se puede deshacer.')) return;

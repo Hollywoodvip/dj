@@ -288,6 +288,16 @@ const Profe = (() => {
         if (bad) add({ id: `fix-${bad.text}`, p: 93, icon: 'fa-screwdriver-wrench', title: `Arregla esto: ${bad.text}`,
             text: `${bad.why} Lo que tienes que tocar está iluminado en amarillo: haz clic ahí (o Espacio).` });
 
+        // A set is going: say what comes next and load it with one click
+        if (!autoMix && typeof Setlist !== 'undefined' && Setlist.active()) {
+            const nx = Setlist.next();
+            if (nx && !next.isPlaying && next.track !== nx && (!next.track || next.track.played || next.track.demo)) {
+                add({ id: `set-next-${nx.id}`, p: 86, icon: 'fa-list-ol', title: `Siguiente del set: ${nx.title}`,
+                    text: `Es el próximo tema de tu set (energía y tono pensados para seguir al que suena). Cárgalo en el Deck ${next.id} y el profe te prepara la mezcla.`,
+                    actions: [{ label: `Cargar en el ${next.id}`, icon: 'fa-download', kind: 'auto', run: () => loadEntryToDeck(nx, next) }] });
+            }
+        }
+
         // The other deck playing underneath (no headphones: it leaks out of the speakers)
         const cueing = typeof Cue !== 'undefined' && Cue.ready() && Cue.pfl(next) && xfGain(next) < 0.05;
         if (!autoMix && next.isPlaying && next.analysis && xfGain(next) <= 0.3 && live.isPlaying && !cueing) {

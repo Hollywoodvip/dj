@@ -128,6 +128,7 @@ const Stems = (() => {
             buffers[p.id] = await audioCtx.decodeAudioData(bytes);
         }
         if (deck.track !== track) return;
+        if (!track.stemsReady && !track.demo) { track.stemsReady = true; saveEntry(track); }
         deck.setStems(buffers);
         STEM_PARTS.forEach(p => deck.setStemLevel(p.id, +$(stemId(deck, p.id)).value));
         deck.vocalPhrase = findVocalPhrase(deck, buffers.vocals);
@@ -157,6 +158,57 @@ const Stems = (() => {
         return count && Math.sqrt(bestE) > 0.02 ? best : null;
     }
 
+    /* ---------- separate a whole folder, one track after another ---------- */
+    let batch = null;
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    function renderBatch() {
+        const b = $('stems-batch');
+        if (!b) return;
+        b.textContent = batch ? `STEMS ${batch.done + 1}/${batch.total} · ${batch.progress || 0}% · PARAR` : 'SEPARAR CARPETA';
+        b.classList.toggle('mini-btn-on', !!batch);
+    }
+    async function separateMany(entries) {
+        if (batch) { batch.stop = true; toast('Paro después del tema que se está separando', 'info'); return; }
+        if (!server.online) { toast('Para separar necesitas python server.py corriendo', 'warn'); return; }
+        ensureAudio();
+        const list = entries.filter(e => e.bytes && !e.demo && !e.stemsReady);
+        if (!list.length) { toast('Todos los temas de esta carpeta ya tienen STEMS ✓', 'ok'); return; }
+        batch = { stop: false, done: 0, total: list.length, progress: 0 };
+        renderBatch();
+        toast(`Separando ${list.length} tema${list.length === 1 ? '' : 's'} en fila (1–3 min cada uno). Puedes seguir tocando`, 'info');
+        for (const e of list) {
+            if (batch.stop) break;
+            try {
+                const h = e.stemHash || (e.stemHash = await sha1(e.bytes));
+                let res = await (await fetch(`/api/stems?hash=${h}`)).json();
+                if (res.status === 'none' || res.status === 'error') {
+                    const r = await fetch(`/api/stems?hash=${h}`, { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: toWav(await decodeBytes(e.bytes)) });
+                    res = await r.json().catch(() => ({}));
+                    if (!r.ok) throw new Error(res.error || `error ${r.status}`);
+                }
+                while (res.status !== 'done') {
+                    await sleep(2000);
+                    res = await (await fetch(`/api/stems?hash=${h}`)).json();
+                    if (res.status === 'error' || res.status === 'none') throw new Error(res.message || 'se interrumpió');
+                    batch.progress = res.progress || 0;
+                    renderBatch();
+                }
+                e.stemsReady = true;
+                saveEntry(e);
+            } catch (err) {
+                toast(`No se pudo separar "${e.title}": ${err.message}`, 'warn');
+                if (/Demucs|numpy|pip install/.test(err.message)) break; // same error for every track
+            }
+            batch.done++;
+            batch.progress = 0;
+            renderBatch();
+            renderLibrary();
+        }
+        toast(`STEMS listos: ${list.filter(e => e.stemsReady).length} de ${list.length} temas ✓`, 'ok');
+        batch = null;
+        renderBatch();
+    }
+
     function toggle(deck, part) {
         const id = stemId(deck, part);
         const lit = currentTargets.find(t => t.id === id && t.value !== undefined);
@@ -167,6 +219,7 @@ const Stems = (() => {
     }
 
     function init() {
+        $('stems-batch').addEventListener('click', () => separateMany(currentLibraryList()));
         deckList.forEach(deck => {
             $(`deck-${deck.key}-stems-btn`).addEventListener('click', () => separate(deck));
             STEM_PARTS.forEach(p => {
@@ -178,7 +231,7 @@ const Stems = (() => {
     }
 
     return {
-        init, onLoad, separate, render,
+        init, onLoad, separate, render, separateMany,
         ready: (deck) => state[deck.key].status === 'ready' && !!deck.stems,
         allOn: (deck) => STEM_PARTS.every(p => +$(stemId(deck, p.id)).value >= 0.5),
         id: stemId,

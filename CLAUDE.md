@@ -81,6 +81,12 @@ merges them into `historial/` (gitignored) and publishes an orphan-style branch
   loudest-vocal phrase `vocalPhrase` over the old one's beat, then the full track).
   Demucs can't be installed in the sandbox (PyTorch/model hosts blocked): tests monkeypatch
   `server.separate` with ffmpeg filters (`separate.stub = True`).
+- `js/setlist.js` — **ARMAR SET**: orders the open folder along an energy curve (previa →
+  subida → peak → cierre; energy = tempo + loudness relative to the set), greedily picking the
+  track that follows best (Camelot, tempo incl. half/double, genre, not played lately). Saved
+  in localStorage `webdj-set`; 🎚 SET tab with energy bars + why each track follows; the profe
+  tips "Siguiente del set" with a load button. SEPARAR CARPETA (`Stems.separateMany`) splits
+  the open folder one track after another (`entry.stemsReady`, violet icon in the list).
 - `js/history.js` — `Historial`: mix log (localStorage `webdj-mixlog`, hooks in
   startAutoMix / guidedStart / finish / cancel, 👍/👎 in the after-mix tip) + export.
 - `js/profe.js` — **DJ PROFE**: tips from the musical context, tricks timed to
