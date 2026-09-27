@@ -34,6 +34,7 @@ const GLOSSARY = [
     ['EQ (HI/MID/LOW)', 'Agudos, medios y bajos. En una mezcla nunca dejes dos bajos (LOW) a full a la vez: se "embarran".'],
     ['CROSSFADER', 'Pasa el sonido de un deck al otro. Al centro suenan los dos.'],
     ['SYNC', 'Iguala el tempo del deck con el otro y cuadra los beats.'],
+    ['CUE (AUDÍFONOS)', 'El botón CUE 🎧 de cada canal manda ese tema solo a tus audífonos, aunque su volumen o el crossfader estén cerrados. Así escuchas el que viene y cuadras los beats antes de que lo oiga la gente. CUE ↔ MASTER mezcla en los audífonos lo que suena en los parlantes.'],
     ['MAPA DE LA MEZCLA', 'Cuando hay una mezcla armada, la parte verde en la onda del tema que suena es la mezcla: ENTRA (dale PLAY al otro), BAJOS (cambio de bajos), TODO AL (crossfader entero al tema nuevo) y PAUSA. Abajo de la onda está la cuenta regresiva, y la rayita verde PLAN sobre el crossfader muestra dónde debería ir.'],
 ];
 
@@ -282,7 +283,8 @@ const Profe = (() => {
             text: `${bad.why} Lo que tienes que tocar está iluminado en amarillo: haz clic ahí (o Espacio).` });
 
         // The other deck playing underneath (no headphones: it leaks out of the speakers)
-        if (!autoMix && next.isPlaying && next.analysis && xfGain(next) <= 0.3 && live.isPlaying) {
+        const cueing = typeof Cue !== 'undefined' && Cue.ready() && Cue.pfl(next) && xfGain(next) < 0.05;
+        if (!autoMix && next.isPlaying && next.analysis && xfGain(next) <= 0.3 && live.isPlaying && !cueing) {
             add({ id: `underneath-${next.key}`, p: 84, icon: 'fa-headphones', title: `El ${next.id} está sonando por debajo`,
                 text: `Sin audífonos se alcanza a escuchar por los parlantes y ensucia el ${live.id}. Déjalo en pausa, listo en su punto de entrada, hasta que toque mezclar.`,
                 actions: [
@@ -712,7 +714,7 @@ const Profe = (() => {
         const names = {
             'eq-low': 'LOW', 'eq-mid': 'MID', 'eq-high': 'HI', 'filter': 'FILTER', 'pitch': 'PITCH',
             'play-btn': (t.label || '').startsWith('PAUSA') ? 'PAUSA' : 'PLAY', 'cue-btn': 'CUE', 'fx-on': 'FX ON',
-            'fx-level': 'nivel del FX', 'sync-btn': 'SYNC', 'eq-reset': 'perillas a 0', 'volume': 'VOLUMEN',
+            'fx-level': 'nivel del FX', 'sync-btn': 'SYNC', 'eq-reset': 'perillas a 0', 'volume': 'VOLUMEN', 'pfl': 'CUE 🎧',
         };
         if (names[part]) return `${names[part]} del ${D}`;
         if (part.startsWith('fxt-')) return `${FX_LABELS[part.slice(4)]} del ${D}`;

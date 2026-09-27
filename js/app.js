@@ -171,6 +171,21 @@ function mixerTemplate() {
                 <input id="crossfader" type="range" min="-1" max="1" step="0.01" value="0" class="w-full" title="← → en el teclado · doble clic = centro">
                 <div id="xf-plan" class="xf-plan hidden" title="Dónde debería estar el crossfader ahora según el plan de la mezcla"></div>
             </div>
+        </div>
+        <div class="w-full bg-black/40 p-2 rounded border border-gray-800">
+            <div class="flex justify-between items-center mb-1.5">
+                <span class="text-[10px] font-bold text-gray-300"><i class="fa-solid fa-headphones mr-1 text-emerald-400"></i>AUDÍFONOS</span>
+                <button id="cue-setup" class="mini-btn" title="Elige parlantes y audífonos">ELEGIR</button>
+            </div>
+            <div class="grid grid-cols-2 gap-1.5 mb-1">
+                <button id="deck-a-pfl" class="btn-dj btn-pfl py-1.5 rounded font-bold text-[11px] text-cyan-300" title="Escuchar el Deck A solo en tus audífonos"><i class="fa-solid fa-headphones"></i> CUE A</button>
+                <button id="deck-b-pfl" class="btn-dj btn-pfl py-1.5 rounded font-bold text-[11px] text-rose-300" title="Escuchar el Deck B solo en tus audífonos"><i class="fa-solid fa-headphones"></i> CUE B</button>
+            </div>
+            <div class="flex justify-around items-end">
+                ${knob('cue-mix', -1, 1, 0.01, -0.4, 'CUE ↔ MASTER')}
+                ${knob('cue-vol', 0, 1, 0.01, 0.8, 'VOL 🎧')}
+            </div>
+            <div id="cue-status" class="text-[9px] text-gray-500 text-center truncate mt-1"></div>
         </div>`;
 }
 
@@ -194,6 +209,8 @@ function ensureAudio() {
     btn.classList.remove('from-cyan-500', 'to-blue-600');
     btn.classList.add('from-emerald-500', 'to-teal-600');
     btn.innerHTML = '<i class="fa-solid fa-check"></i> Audio ON';
+
+    Cue.onAudio();
 
     loadDemo(128, 0, decks.a, true);
     loadDemo(124, 1, decks.b, true);
@@ -1280,6 +1297,10 @@ function planTransition(live, next, now = false) {
     if (!next.isPlaying) {
         prep(`Pon el ${LB} en su punto de entrada: ${formatTime(inStart, false)}${useDrop ? ' (su drop)' : ''}. Clic en su CUE iluminado`, [{ type: 'cue' }]);
     }
+    // With headphones: listen to the new track before the crowd hears it
+    if (typeof Cue !== 'undefined' && Cue.ready() && !Cue.pfl(next)) {
+        prep(`Escucha el ${LB} en tus audífonos: prende su CUE 🎧 (solo lo oyes tú). Mantén su botón CUE para oírlo desde donde va a entrar`, [{ type: 'pfl' }]);
+    }
     const wantRate = r ? r.rate : 1;
     if (!next.isPlaying && Math.abs(next.pitch - wantRate) > 0.0015) {
         const pct = ((wantRate - 1) * 100).toFixed(1);
@@ -1484,6 +1505,10 @@ function fireStep(m, step) {
             const go = () => { inc.cue = at; inc.seek(at); };
             if (m.mode === 'auto') go();
             else step.pending.push({ id: `deck-${inc.key}-cue-btn`, label: `IR A ${formatTime(at, false)} · clic`, check: () => !inc.isPlaying && Math.abs(inc.getCurrentTime() - at) < 0.15, run: go });
+        } else if (a.type === 'pfl') {
+            const inc = m.in;
+            if (m.mode === 'auto') Cue.setPfl(inc, true);
+            else step.pending.push({ id: `deck-${inc.key}-pfl`, label: 'PRENDER · clic', check: () => Cue.pfl(inc), run: () => { if (!Cue.pfl(inc)) Cue.toggle(inc); } });
         } else if (a.type === 'startIn') {
             const inc = m.in;
             if (m.mode === 'guide' && !m.started) step.pending.push({ id: `deck-${inc.key}-play-btn`, label: 'PLAY en el 1 · clic', check: () => m.started, run: () => { if (!m.started) togglePlay(inc); } });
@@ -1648,6 +1673,8 @@ function finishAutoMix(early = false) {
     if (out.syncOn) out.syncOn = false;
     inc.syncOn = false;
     startPitchReturn(inc, 32);
+    // The new track is on air now: the headphones go back to nothing cued
+    if (typeof Cue !== 'undefined') { Cue.setPfl(inc, false); Cue.setPfl(out, false); }
     refreshDeckButtons(out);
     refreshDeckButtons(inc);
     autoMix = null;
@@ -2854,6 +2881,7 @@ window.addEventListener('DOMContentLoaded', () => {
     renderLibrary();
     checkServer();
     Profe.init();
+    Cue.init();
     loadLibraryFromStore();
     loadPadSamples();
     requestAnimationFrame(frame);

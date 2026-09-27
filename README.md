@@ -36,6 +36,12 @@ and BPM fixes survive reloads; pasting a YouTube link you already have doesn't
 download it again. **REC** records the whole mix (effects and sampler too) with a
 tracklist; download it as-is or as a 320 kbps MP3 (needs ffmpeg).
 
+**Headphones (pre-listen):** in the mixer, AUDÍFONOS → ELEGIR picks the speakers
+(e.g. a Bluetooth speaker) and the headphones (AirPods or wired headphones in the Mac's
+jack) separately. CUE A / CUE B send a channel only to your headphones; CUE ↔ MASTER
+blends in what the crowd hears. Chrome needs microphone permission once, only to show
+the device names.
+
 **Also:** 8 sampler pads that land on the beat by themselves (riser and snare roll end exactly on the drop; impact, reverse cymbal, downlifter, sub drop, stab in the track's key, air horn), and you can drag your own .wav/.mp3 onto any pad (saved in the browser), library with match stars,
 keyboard shortcuts for everything (press **H** in the app).
 

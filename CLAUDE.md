@@ -34,6 +34,11 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
 - `js/app.js` — UI templates, knobs, waveforms, sync, **mix coach**
   (`planTransition` → steps executed by `tickAutoMix`, modes `auto`/`guide`),
   library, keyboard, converter, frame loop.
+- `js/cue.js` — **headphones (CUE/PFL)**: MASTER to the speakers via `AudioContext.setSinkId`,
+  CUE bus (each deck's `filterNode`, pre-fader, + master via CUE ↔ MASTER) to a second
+  device through a MediaStream `<audio>` with its own `setSinkId`. The cue never plays
+  until a headphone device different from the speakers is chosen (no leaks to the party).
+  Guided prep adds "prende el CUE 🎧 del B" when headphones are set.
 - `js/profe.js` — **DJ PROFE**: tips from the musical context, tricks timed to
   drops, live review chips ("TU MEZCLA"), modes CONSEJOS / GUIADO / AUTOMÁTICO.
 

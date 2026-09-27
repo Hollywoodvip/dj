@@ -130,6 +130,7 @@
         /* Crossfader: where the mix plan wants it right now */
         .xf-plan { position: absolute; top: -5px; width: 2px; height: calc(100% + 10px); background: #34d399; border-radius: 1px; pointer-events: none; box-shadow: 0 0 6px rgba(52,211,153,0.8); transition: left 0.2s linear; }
         .xf-plan::before { content: 'PLAN'; position: absolute; bottom: -11px; left: 50%; transform: translateX(-50%); font-size: 8px; font-weight: 700; color: #34d399; }
+        .btn-pfl.active { background: #065f46; border-color: #34d399; color: #d1fae5; box-shadow: 0 0 8px rgba(52,211,153,0.5); }
         .pad.armed { border-color: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.55); }
         .pad.pad-custom { border-color: #7c3aed; }
         .pad.pad-drop { border-color: #22d3ee; box-shadow: 0 0 0 2px rgba(34,211,238,0.7); }
@@ -430,6 +431,30 @@
         </div>
     </div>
 
+    <!-- Headphones: pick the outputs -->
+    <div id="cue-modal" class="fixed inset-0 modal-blur z-50 flex items-center justify-center hidden p-4">
+        <div class="dj-panel rounded-xl p-5 max-w-lg w-full border border-emerald-500/30 shadow-2xl relative text-xs text-gray-300 space-y-3">
+            <button id="cue-close" class="absolute top-3 right-3 text-gray-500 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            <h3 class="text-sm font-bold text-white tracking-wider"><i class="fa-solid fa-headphones text-emerald-400 mr-1"></i> PARLANTES Y AUDÍFONOS</h3>
+            <p class="text-gray-400">Los parlantes llevan la mezcla que escucha la gente. Los audífonos son solo para ti: ahí escuchas el tema que viene (botón <b>CUE</b> de cada canal) antes de hacerlo sonar.</p>
+            <button id="out-names" class="mini-btn hidden">Mostrar los nombres de mis dispositivos</button>
+            <p class="text-[10px] text-gray-500 -mt-2" id="out-names-note">Chrome solo muestra los nombres si le das permiso de micrófono una vez (no se graba nada, se cierra al tiro).</p>
+            <label class="block">
+                <span class="font-bold text-gray-200">Parlantes (la gente)</span>
+                <div class="flex gap-2 mt-1"><select id="out-master" class="flex-1 bg-gray-900 border border-gray-700 rounded px-2 py-1.5"></select><button id="out-test-master" class="mini-btn">PROBAR</button></div>
+                <span id="out-master-note" class="text-[10px] text-amber-300 hidden">Este Chrome no deja elegir los parlantes: se usa la salida del Mac.</span>
+            </label>
+            <label class="block">
+                <span class="font-bold text-gray-200">Audífonos (solo tú)</span>
+                <div class="flex gap-2 mt-1"><select id="out-cue" class="flex-1 bg-gray-900 border border-gray-700 rounded px-2 py-1.5"></select><button id="out-test-cue" class="mini-btn">PROBAR</button></div>
+            </label>
+            <div class="text-[11px] text-gray-400 border-t border-gray-800 pt-2 space-y-1">
+                <p><b class="text-gray-200">AirPods + parlante Bluetooth:</b> conecta los dos en el Mac y elígelos aquí. El Bluetooth tiene un pequeño retraso: para cuadrar beats escucha los dos temas en los audífonos con la perilla <b>CUE ↔ MASTER</b>.</p>
+                <p><b class="text-gray-200">Audífonos con cable:</b> en el conector del Mac aparecen como "Audífonos externos".</p>
+            </div>
+        </div>
+    </div>
+
     <div id="toasts" class="fixed top-16 right-4 z-50 flex flex-col gap-2 items-end pointer-events-none"></div>
 
     <script src="js/store.js"></script>
@@ -438,5 +463,6 @@
     <script src="js/engine.js"></script>
     <script src="js/app.js"></script>
     <script src="js/profe.js"></script>
+    <script src="js/cue.js"></script>
 </body>
 </html>
