@@ -88,6 +88,11 @@ const Stems = (() => {
         render(deck);
         try {
             const h = await trackHash(deck);
+            // Ask first: if Demucs can't run there's no point in uploading ~45 MB
+            const st = await (await fetch(`/api/stems?hash=${h}`)).json();
+            if (st.status === 'done') { await loadFiles(deck, st.files, track); return; }
+            if (st.status === 'working' || st.status === 'queued') { poll(deck, h, track); return; }
+            if (st.available === false) throw new Error(st.error || 'Demucs no está instalado. En la terminal: pip install demucs numpy (y reinicia python server.py)');
             const res = await fetch(`/api/stems?hash=${h}`, { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: toWav(deck.audioBuffer) });
             const out = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(out.error || `error ${res.status}`);
@@ -95,9 +100,10 @@ const Stems = (() => {
             toast(`Separando el Deck ${deck.id} en voz, batería, bajo y melodía… (1–3 min, puedes seguir tocando)`, 'info');
             poll(deck, h, track);
         } catch (e) {
-            state[deck.key] = { status: 'error', message: e.message };
+            const msg = e.message === 'Failed to fetch' ? 'se cortó la conexión con python server.py (¿se cerró o se reinició? revisa la terminal)' : e.message;
+            state[deck.key] = { status: 'error', message: msg };
             render(deck);
-            toast(`No se pudo separar: ${e.message}`, 'warn');
+            toast(`No se pudo separar: ${msg}`, 'warn');
         }
     }
 
@@ -181,6 +187,7 @@ const Stems = (() => {
             try {
                 const h = e.stemHash || (e.stemHash = await sha1(e.bytes));
                 let res = await (await fetch(`/api/stems?hash=${h}`)).json();
+                if (res.available === false) throw new Error(res.error || 'Demucs no está instalado: pip install demucs numpy');
                 if (res.status === 'none' || res.status === 'error') {
                     const r = await fetch(`/api/stems?hash=${h}`, { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: toWav(await decodeBytes(e.bytes)) });
                     res = await r.json().catch(() => ({}));

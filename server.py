@@ -385,22 +385,39 @@ class DJHandler(SimpleHTTPRequestHandler):
             return self.send_json(200, {k: job.get(k) for k in ("status", "progress", "message")})
         return self.send_json(200, {"status": "none", "available": HAS_DEMUCS and not DEMUCS_ERROR, "error": DEMUCS_ERROR})
 
+    def drain_body(self):
+        """Read (and drop) the upload before answering with an error: if we reply while the
+        browser is still sending ~45 MB, it sees a reset connection ("Failed to fetch")
+        instead of our message."""
+        remaining = int(self.headers.get("Content-Length") or 0)
+        while remaining > 0:
+            chunk = self.rfile.read(min(1 << 20, remaining))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+
     def handle_stems_start(self, query):
         h = self.stem_hash(query)
         if not h:
+            self.drain_body()
             return self.send_json(400, {"error": "hash inválido"})
         if stem_files(h):
+            self.drain_body()
             return self.send_json(200, {"status": "done", "files": stem_files(h)})
         job = STEM_JOBS.get(h)
         if job and job.get("status") in ("queued", "working"):
+            self.drain_body()
             return self.send_json(200, {k: job.get(k) for k in ("status", "progress", "message")})
         if not getattr(separate, "stub", False):  # tests swap in a stub separator
             if not HAS_DEMUCS:
+                self.drain_body()
                 return self.send_json(500, {"error": "Demucs no está instalado. En la terminal: pip install demucs numpy (y reinicia python server.py)"})
             if DEMUCS_ERROR:
+                self.drain_body()
                 return self.send_json(500, {"error": DEMUCS_ERROR})
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0 or length > 400 * 1024 * 1024:
+            self.drain_body()
             return self.send_json(400, {"error": "Audio vacío o demasiado grande"})
         os.makedirs(STEMS_DIR, exist_ok=True)
         input_path = os.path.join(STEMS_DIR, f"{h}.input.wav")
