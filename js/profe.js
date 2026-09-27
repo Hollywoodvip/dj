@@ -45,6 +45,13 @@ const Profe = (() => {
     let lastEqTouch = { a: 0, b: 0 };
     let fxOnSince = { a: null, b: null };
     let tipIndex = 0;
+    // CONSEJOS = tips only · GUIADO = arms guided mixes by itself · AUTOMÁTICO = mixes by itself
+    let mode = 'tips';
+    let armedKey = null;
+    const refused = new Set();
+    const doneDrops = new Set();
+    let autoTrickCount = 0;
+    let lastAutoTrickPos = { a: -Infinity, b: -Infinity };
 
     /* ---------------- musical context ---------------- */
     const trackTime = (deck) => (deck.slip ? deck.slip.pos : deck.getCurrentTime());
@@ -269,7 +276,7 @@ const Profe = (() => {
         const L = live.id;
 
         // Mix timing
-        if (!autoMix && next.analysis && ctx.barsToOut <= 8 && ctx.barsToOut > -4) {
+        if (!autoMix && mode === 'tips' && next.analysis && ctx.barsToOut <= 8 && ctx.barsToOut > -4) {
             add({ id: 'mix-now', p: 90, icon: 'fa-shuffle', title: '¡Momento de mezclar!',
                 text: `El Deck ${L} está llegando a su salida${resolvedPace(live) === 'fast' ? ' (ritmo rápido: termina un coro, la gente ya escuchó lo mejor)' : ''}. Presiona GUIADO (T) y yo te voy diciendo qué mover, o AUTO MIX (Enter) para verlo hecho.`,
                 when: () => `salida en ${barsText(Math.max(0, context(live).barsToOut))}`,
@@ -397,7 +404,8 @@ const Profe = (() => {
                 if (val(`deck-${k}-eq-${b}`) > 2.5) add('warn', `${b.toUpperCase()} del ${D} sobre 0`, 'Subir el EQ sobre 0 satura. Los DJs casi nunca suben: bajan lo que sobra.', set(`deck-${k}-eq-${b}`, 0));
             });
             // Pitch too far
-            if (Math.abs(d.pitch - 1) > 0.06) add('warn', `Pitch del ${D} en ${((d.pitch - 1) * 100).toFixed(1)}%`, 'Más de ±6% cambia notoriamente la voz (ardilla o monstruo). Mejor mezcla con ECHO OUT a temas de tempo muy distinto.');
+            if (Math.abs(d.pitch - 1) > 0.06 && !d.pitchReturn) add('warn', `Pitch del ${D} en ${((d.pitch - 1) * 100).toFixed(1)}%`, 'Más de ±6% cambia notoriamente la voz (ardilla o monstruo). Lo devuelvo a 0 de a poco para que nadie lo note.', { run: () => startPitchReturn(d, 8) });
+            else if (d.pitchReturn) add('ok', `Pitch del ${D} volviendo a 0`, 'Después de mezclar, el tempo vuelve de a poco a la velocidad original del tema.');
             // Only playing deck sounding dull
             if (on.length === 1 && !autoMix && (val(`deck-${k}-eq-mid`) < -12 || val(`deck-${k}-eq-high`) < -12 || val(`deck-${k}-eq-low`) < -12)) {
                 add('warn', `EQ del ${D} muy cortado`, 'Es el único tema sonando: con tanto corte se escucha apagado. Vuelve las perillas a 0.', { run: () => resetChannel(d) });
@@ -515,6 +523,51 @@ const Profe = (() => {
         $('profe-when').textContent = active ? `▶ ${active.trick.label} en el Deck ${active.id}` : tip.when ? tip.when() : '';
     }
 
+    const pairKey = (live, next) => `${live.key}:${live.track ? live.track.title : ''}>${next.track ? next.track.title : ''}`;
+
+    // GUIADO / AUTOMÁTICO: arm the mix by itself about 32 bars before the out point
+    function autoArm() {
+        if (mode === 'tips' || autoMix || !audioCtx) return;
+        const { live, next } = liveAndNext();
+        if (!live.isPlaying || !live.analysis || !next.analysis || next.isPlaying) return;
+        if (next.track && next.track.played) return;
+        const key = pairKey(live, next);
+        if (refused.has(key)) return;
+        const ctx = context(live);
+        if (ctx.barsToOut > 32 || ctx.barsToOut < -16) return;
+        armedKey = key;
+        startAutoMix(false, mode === 'guide' ? 'guide' : 'auto');
+    }
+
+    // AUTOMÁTICO: tasteful effects into drops (not every drop, never right before a mix)
+    function autoTricks() {
+        if (mode !== 'auto' || autoMix) return;
+        const { live } = liveAndNext();
+        if (!live.isPlaying || !live.analysis || live.trick || live.fx.on || !audible(live)) return;
+        const ctx = context(live);
+        if (!ctx.nextDrop || ctx.barsToDrop > 4.1 || ctx.barsToDrop < 1 || ctx.barsToOut < 12) return;
+        const dropKey = `${live.key}:${live.track ? live.track.title : ''}:${Math.round(ctx.nextDrop)}`;
+        if (doneDrops.has(dropKey)) return;
+        doneDrops.add(dropKey);
+        if (ctx.pos - lastAutoTrickPos[live.key] < 32 * ctx.bar) return;
+        lastAutoTrickPos[live.key] = ctx.pos;
+        const names = ctx.section === 'intro' ? ['filter_build', 'roll_drop'] : ['roll_drop', 'filter_build', 'trans_drop'];
+        runTrick(names[autoTrickCount++ % names.length], live);
+    }
+
+    function setMode(m) {
+        mode = m;
+        try { localStorage.setItem('webdj-profe-mode', m); } catch (e) {}
+        document.querySelectorAll('[data-profemode]').forEach(b => b.classList.toggle('mini-btn-on', b.dataset.profemode === m));
+        const msg = {
+            tips: 'Modo CONSEJOS: te digo qué hacer, tú decides.',
+            guide: 'Modo GUIADO: cuando llegue el momento te armo la mezcla y te ilumino lo que tienes que mover.',
+            auto: 'Modo AUTOMÁTICO: yo mezclo en el momento justo y le pongo efectos a los drops. Tú disfruta.',
+        }[m];
+        toast(msg, 'ok');
+        render(true);
+    }
+
     function tick() {
         deckList.forEach(d => {
             if (d.fx && d.fx.on && !fxOnSince[d.key]) fxOnSince[d.key] = performance.now();
@@ -522,6 +575,7 @@ const Profe = (() => {
         });
         render();
         renderChecks();
+        if (enabled) { autoArm(); autoTricks(); }
     }
 
     function init() {
@@ -530,6 +584,11 @@ const Profe = (() => {
             enabled = !enabled;
             try { localStorage.setItem('webdj-profe', enabled ? '1' : '0'); } catch (e) {}
             render(true);
+        });
+        try { mode = localStorage.getItem('webdj-profe-mode') || 'tips'; } catch (e) {}
+        document.querySelectorAll('[data-profemode]').forEach(b => {
+            b.classList.toggle('mini-btn-on', b.dataset.profemode === mode);
+            b.addEventListener('click', () => setMode(b.dataset.profemode));
         });
         $('profe-next').addEventListener('click', () => {
             if (current) dismissed[current.id] = performance.now() + 30000;
@@ -543,5 +602,11 @@ const Profe = (() => {
         render(true);
     }
 
-    return { init, tick, tickTricks, render, targets: () => targets, clearTargets: () => { targets = []; } };
+    return {
+        init, tick, tickTricks, render,
+        targets: () => targets, clearTargets: () => { targets = []; },
+        mode: () => (enabled ? mode : 'tips'),
+        // A mix you cancelled is not re-armed for the same pair of tracks
+        onCancel: () => { if (armedKey) refused.add(armedKey); armedKey = null; },
+    };
 })();

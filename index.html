@@ -111,6 +111,7 @@
             background: #1a1d24; border: 1px solid #363c4d; color: #9ca3af;
         }
         .mini-btn:hover { color: #fff; border-color: #6b7280; }
+        .mini-btn.mini-btn-on { background: #f59e0b; border-color: #fbbf24; color: #111; }
         .tag { font-size: 9px; font-weight: 700; padding: 0 4px; border-radius: 3px; border: 1px solid #374151; color: #9ca3af; }
 
         /* Keyboard shortcut badges */
@@ -162,6 +163,14 @@
         .fx-safe-track { position: relative; height: 3px; border-radius: 2px; background: rgba(244,63,94,0.55); margin-top: 1px; }
         .fx-safe-track > div { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: #10b981; }
 
+        @media (max-height: 800px) {
+            .jog-wheel { width: 7rem !important; height: 7rem !important; }
+            canvas[id$="-zoom"] { height: 2.4rem !important; }
+            input.vertical-pitch.h-32 { height: 5rem !important; }
+            input.vertical-pitch.h-28, canvas[id^="vu-meter"] { height: 4.5rem !important; }
+            [id$="-fx-hint"] { display: none; }
+        }
+
         .modal-blur { backdrop-filter: blur(8px); background-color: rgba(5, 6, 9, 0.85); }
 
         @keyframes pulseGlow { 0%, 100% { opacity: 0.75; } 50% { opacity: 1; } }
@@ -176,60 +185,50 @@
 </head>
 <body class="min-h-screen p-2 md:p-4 flex flex-col">
 
-    <!-- Header -->
-    <header class="dj-panel rounded-lg p-3 mb-3 flex flex-wrap justify-between items-center gap-2 border-b-2 border-cyan-500">
-        <div class="flex items-center gap-3">
-            <i class="fa-solid fa-compact-disc text-cyan-400 text-2xl animate-spin" style="animation-duration: 8s;"></i>
-            <h1 class="text-xl font-extrabold tracking-wider text-white font-digits">WEB<span class="text-cyan-400">DJ</span> <span class="text-xs text-gray-400">PRO</span></h1>
-            <div id="master-clock" class="font-digits text-sm bg-black/60 px-3 py-1 rounded text-cyan-300 border border-cyan-900/50">00:00:00</div>
+    <!-- Header + YouTube extractor (one row so the decks fit on a laptop) -->
+    <header class="dj-panel rounded-lg px-3 py-2 mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 border-b-2 border-cyan-500">
+        <div class="flex items-center gap-2 shrink-0">
+            <i class="fa-solid fa-compact-disc text-cyan-400 text-xl animate-spin" style="animation-duration: 8s;"></i>
+            <h1 class="text-lg font-extrabold tracking-wider text-white font-digits">WEB<span class="text-cyan-400">DJ</span></h1>
+            <div id="master-clock" class="font-digits text-xs bg-black/60 px-2 py-1 rounded text-cyan-300 border border-cyan-900/50">00:00:00</div>
         </div>
-        <div class="flex items-center gap-4 flex-wrap">
-            <div class="flex items-center gap-2">
-                <span class="text-xs font-bold text-gray-400">MASTER</span>
-                <input id="master-gain" type="range" min="0" max="1" step="0.01" value="0.8" class="w-24">
+        <div class="flex items-center gap-2 flex-grow min-w-[300px]">
+            <i class="fa-brands fa-youtube text-red-500 text-xl"></i>
+            <div class="relative flex-grow">
+                <input id="youtube-url-input" type="text" placeholder="Pega un link de YouTube y presiona Enter..." class="w-full bg-black/80 border border-gray-700 rounded-lg pl-3 pr-7 py-1.5 text-xs text-white focus:outline-none focus:border-red-500 font-mono">
+                <button id="clear-yt-btn" class="absolute right-2 top-1.5 text-gray-500 hover:text-white text-xs"><i class="fa-solid fa-xmark"></i></button>
             </div>
-            <button id="scroll-toggle" class="px-2.5 py-1.5 rounded text-xs font-bold border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500" title="Si al deslizar en el touchpad las perillas van al revés, toca aquí">
+            <button id="convert-yt-btn" class="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 whitespace-nowrap">
+                <i class="fa-solid fa-file-arrow-down"></i> Extraer
+            </button>
+            <span id="yt-server-status" class="w-2.5 h-2.5 rounded-full inline-block bg-gray-600 shrink-0" title="Revisando el conversor..."></span>
+        </div>
+        <select id="demo-select" class="bg-black/80 border border-gray-700 rounded text-xs text-gray-300 px-2 py-1.5 shrink-0" title="Beats sintéticos para practicar">
+            <option value="">Demos…</option>
+            <option value="128,0,A">Demo 128 → A</option>
+            <option value="124,1,B">Demo 124 → B</option>
+            <option value="100,1,A">Demo 100 → A</option>
+            <option value="96,1,B">Demo 96 → B</option>
+        </select>
+        <div class="flex items-center gap-1.5 shrink-0">
+            <span class="text-[10px] font-bold text-gray-400">MASTER</span>
+            <input id="master-gain" type="range" min="0" max="1" step="0.01" value="0.8" class="w-20">
+        </div>
+        <div class="flex items-center gap-1.5 shrink-0">
+            <button id="scroll-toggle" class="px-2 py-1.5 rounded text-[11px] font-bold border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500" title="Si al deslizar en el touchpad las perillas van al revés, toca aquí">
                 <i class="fa-solid fa-arrows-up-down"></i> <span id="scroll-label">SCROLL</span>
             </button>
-            <button id="kbd-toggle" class="px-2.5 py-1.5 rounded text-xs font-bold border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500" title="Mostrar/ocultar teclas en los botones">
-                <i class="fa-regular fa-keyboard"></i> TECLAS
+            <button id="kbd-toggle" class="px-2 py-1.5 rounded text-[11px] font-bold border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500" title="Mostrar/ocultar teclas en los botones">
+                <i class="fa-regular fa-keyboard"></i>
             </button>
-            <button id="help-btn" class="px-2.5 py-1.5 rounded text-xs font-bold border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500">
-                <i class="fa-solid fa-circle-question"></i> ATAJOS <span class="text-gray-500">(H)</span>
+            <button id="help-btn" class="px-2 py-1.5 rounded text-[11px] font-bold border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500" title="Atajos, efectos y glosario (H)">
+                <i class="fa-solid fa-circle-question"></i> AYUDA
             </button>
-            <button id="audio-init-btn" class="px-4 py-1.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold rounded shadow-lg text-xs uppercase tracking-wider flex items-center gap-2 border border-cyan-300/30">
-                <i class="fa-solid fa-power-off"></i> Start Audio Engine
+            <button id="audio-init-btn" class="px-3 py-1.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold rounded text-[11px] uppercase tracking-wider flex items-center gap-1.5 border border-cyan-300/30">
+                <i class="fa-solid fa-power-off"></i> Start Audio
             </button>
         </div>
     </header>
-
-    <!-- YouTube extractor -->
-    <section class="dj-panel rounded-lg p-3 mb-3 border-t-2 border-red-600">
-        <div class="flex flex-col md:flex-row items-center justify-between gap-3">
-            <div class="flex items-center gap-2 whitespace-nowrap">
-                <i class="fa-brands fa-youtube text-red-500 text-2xl"></i>
-                <div>
-                    <h2 class="text-xs font-bold text-white tracking-wider">YOUTUBE AUDIO EXTRACTOR</h2>
-                    <p id="yt-server-status" class="text-[10px] text-gray-400">Paste a link, extract the audio and load it on a deck</p>
-                </div>
-            </div>
-            <div class="flex items-center gap-2 w-full md:w-auto flex-grow max-w-2xl">
-                <div class="relative w-full">
-                    <input id="youtube-url-input" type="text" placeholder="Pega un link de YouTube y presiona Enter..." class="w-full bg-black/80 border border-gray-700 rounded-lg pl-3 pr-8 py-2 text-xs text-white focus:outline-none focus:border-red-500 font-mono">
-                    <button id="clear-yt-btn" class="absolute right-2 top-2 text-gray-500 hover:text-white text-xs"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                <button id="convert-yt-btn" class="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg text-xs flex items-center gap-2 shadow-lg whitespace-nowrap">
-                    <i class="fa-solid fa-file-arrow-down"></i> Extract Audio
-                </button>
-            </div>
-        </div>
-        <div class="mt-3 pt-2 border-t border-gray-800/80 flex flex-wrap items-center gap-2 text-xs">
-            <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest"><i class="fa-solid fa-bolt text-amber-400 mr-1"></i> Demo beats (synthesized):</span>
-            <button data-demo="128,0,A" class="px-2.5 py-1 bg-gray-900 hover:bg-cyan-950 text-cyan-300 border border-cyan-800/50 rounded"><i class="fa-solid fa-wave-square text-amber-400"></i> Demo 128 &rarr; <b>A</b></button>
-            <button data-demo="124,1,B" class="px-2.5 py-1 bg-gray-900 hover:bg-rose-950 text-rose-300 border border-rose-800/50 rounded"><i class="fa-solid fa-wave-square text-amber-400"></i> Demo 124 &rarr; <b>B</b></button>
-            <button data-demo="100,1,A" class="px-2.5 py-1 bg-gray-900 hover:bg-cyan-950 text-cyan-300 border border-cyan-800/50 rounded"><i class="fa-solid fa-wave-square text-amber-400"></i> Demo 100 &rarr; <b>A</b></button>
-        </div>
-    </section>
 
     <!-- Decks + mixer -->
     <main class="grid grid-cols-1 lg:grid-cols-12 gap-3">
@@ -253,9 +252,16 @@
             <div id="profe-actions" class="flex flex-wrap gap-2 mt-2"></div>
             <div id="profe-checks" class="hidden flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-gray-800"></div>
         </div>
-        <div class="flex flex-col gap-1 shrink-0">
-            <button id="profe-toggle" class="mini-btn">PROFE: ON</button>
-            <button id="profe-next" class="mini-btn" title="Otro consejo (N)">OTRO CONSEJO ›</button>
+        <div class="flex flex-col gap-1 shrink-0 items-end">
+            <div class="flex gap-1" title="Cómo te ayuda el profe">
+                <button data-profemode="tips" class="mini-btn" title="Solo te dice qué hacer">CONSEJOS</button>
+                <button data-profemode="guide" class="mini-btn" title="Arma la mezcla y te ilumina lo que tienes que mover">GUIADO</button>
+                <button data-profemode="auto" class="mini-btn" title="Mezcla él solo y pone efectos en los drops">AUTOMÁTICO</button>
+            </div>
+            <div class="flex gap-1">
+                <button id="profe-toggle" class="mini-btn">PROFE: ON</button>
+                <button id="profe-next" class="mini-btn" title="Otro consejo (N)">OTRO CONSEJO ›</button>
+            </div>
         </div>
     </section>
 

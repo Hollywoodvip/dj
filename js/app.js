@@ -100,7 +100,7 @@ function deckTemplate(k) {
                 <span id="deck-${k}-fx-status" class="text-[10px] font-digits text-violet-300"></span>
             </div>
             <div id="deck-${k}-fx-types" class="grid grid-cols-6 gap-1 mb-1.5">${fxButtons}</div>
-            <div id="deck-${k}-fx-hint" class="text-[10px] text-gray-400 leading-snug mb-1.5 min-h-[26px]"></div>
+            <div id="deck-${k}-fx-hint" class="text-[10px] text-gray-400 leading-snug mb-1.5 truncate"></div>
             <div class="grid grid-cols-12 gap-1.5 items-center">
                 <div id="deck-${k}-fx-beats" class="col-span-6 grid grid-cols-5 gap-1">${beatButtons}</div>
                 <div class="col-span-3 flex flex-col">
@@ -187,7 +187,7 @@ function ensureAudio() {
     const btn = $('audio-init-btn');
     btn.classList.remove('from-cyan-500', 'to-blue-600');
     btn.classList.add('from-emerald-500', 'to-teal-600');
-    btn.innerHTML = '<i class="fa-solid fa-check"></i> Audio Engine Active';
+    btn.innerHTML = '<i class="fa-solid fa-check"></i> Audio ON';
 
     loadDemo(128, 0, decks.a, true);
     loadDemo(124, 1, decks.b, true);
@@ -330,7 +330,7 @@ function wheelSlider(input, fullPx = 300) {
 }
 
 function refreshScrollLabel() {
-    $('scroll-label').textContent = Prefs.naturalScroll ? 'SCROLL: NATURAL' : 'SCROLL: CLÁSICO';
+    $('scroll-label').textContent = Prefs.naturalScroll ? 'NATURAL' : 'CLÁSICO';
 }
 
 /* ==========================================================================
@@ -537,7 +537,7 @@ function refreshFxUI(deck) {
     const lim = typeof FX_LIMITS !== 'undefined' ? FX_LIMITS[type] : null;
     const hint = typeof FX_HELP !== 'undefined' ? `${FX_HELP[type]}${lim ? ` Límite: ${lim.tip}.` : ''}` : '';
     const hintEl = $(`deck-${k}-fx-hint`);
-    if (hintEl.textContent !== hint) hintEl.textContent = hint;
+    if (hintEl.textContent !== hint) { hintEl.textContent = hint; hintEl.title = hint; }
     if (lim) {
         $(`deck-${k}-fx-safe`).style.width = `${lim.max * 100}%`;
         document.querySelectorAll(`#deck-${k}-fx-beats [data-fxbeats]`).forEach(b => b.classList.toggle('fx-rec', lim.beats.includes(+b.dataset.fxbeats)));
@@ -646,21 +646,44 @@ function setTrackBpm(deck, bpm, anchor = null) {
 
 /* ---------- sync ---------- */
 // Tempo ratio closest to 1, allowing half/double time. Returns {rate, factor} or null
-function tempoRatio(deck, master) {
+// Without key lock, speeding a track up raises its pitch: past ~6% voices sound
+// like chipmunks, so mixes never push the pitch further than this
+const MAX_MIX_PITCH = 0.06;
+const MAX_SYNC_PITCH = 0.08;
+
+function tempoRatio(deck, master, limit = MAX_SYNC_PITCH) {
     const target = master.bpm * master.pitch;
     const options = [1, 2, 0.5].map(factor => ({ factor, rate: target / (deck.bpm * factor) }));
     options.sort((x, y) => Math.abs(x.rate - 1) - Math.abs(y.rate - 1));
-    return Math.abs(options[0].rate - 1) <= 0.16 ? options[0] : null;
+    return Math.abs(options[0].rate - 1) <= limit ? options[0] : null;
+}
+
+// Bring a deck's pitch back to 0% slowly (nobody notices a slow tempo drift)
+function startPitchReturn(deck, bars = 32) {
+    if (Math.abs(deck.pitch - 1) < 0.003) return;
+    deck.syncOn = false;
+    deck.pitchReturn = { from: deck.pitch, start: performance.now(), ms: bars * 4 * deck.beatSec * 1000 };
+}
+function tickPitchReturn(nowMs) {
+    deckList.forEach(d => {
+        const r = d.pitchReturn;
+        if (!r) return;
+        const t = clamp((nowMs - r.start) / r.ms, 0, 1);
+        d.setPitch(r.from + (1 - r.from) * t);
+        setPitchUI(d);
+        if (t >= 1) d.pitchReturn = null;
+    });
 }
 
 function matchTempo(deck, master, quiet = false) {
     if (!deck.analysis || !master.analysis) return false;
     const r = tempoRatio(deck, master);
     if (!r) {
-        if (!quiet) toast(`Tempos muy distintos (${deck.effectiveBpm.toFixed(0)} vs ${master.effectiveBpm.toFixed(0)} BPM): no se puede sincronizar`, 'warn');
+        if (!quiet) toast(`Tempos muy distintos (${deck.bpm.toFixed(0)} vs ${master.effectiveBpm.toFixed(0)} BPM): igualarlos haría que las voces suenen a ardilla. Mezcla con ECHO OUT (el profe lo elige solo).`, 'warn');
         return false;
     }
     if (Math.abs(r.rate - 1) > deck.pitchRange) deck.pitchRange = 0.16;
+    deck.pitchReturn = null;
     deck.syncFactor = r.factor;
     deck.setPitch(r.rate);
     setPitchUI(deck);
@@ -974,7 +997,7 @@ function recommendedBars(live, next) {
 // Build a transition plan. Pure: it doesn't touch the decks.
 function planTransition(live, next, now = false) {
     const la = live.analysis, na = next.analysis;
-    const r = tempoRatio(next, live);
+    const r = tempoRatio(next, live, MAX_MIX_PITCH);
     const { liveKey, nextKey, compat } = keyInfo(live, next, r ? r.rate : next.pitch);
     const barOut = 4 * live.beatSec;
     const pos = live.getCurrentTime();
@@ -984,7 +1007,8 @@ function planTransition(live, next, now = false) {
     if (style === 'auto') {
         if (!r) {
             style = 'echo';
-            reason = `los tempos (${live.effectiveBpm.toFixed(0)} y ${next.bpm.toFixed(0)} BPM) están muy lejos para sonar encima: se corta con eco y entra el otro en su drop`;
+            const diff = Math.abs(live.effectiveBpm / next.bpm - 1) * 100;
+            reason = `los tempos (${live.effectiveBpm.toFixed(0)} y ${next.bpm.toFixed(0)} BPM) están a ${diff.toFixed(0)}%: para igualarlos las voces sonarían a ardilla. Se corta con eco y el ${next.id} entra a su velocidad normal`;
         } else if (compat === 0) {
             style = 'filter';
             reason = `las tonalidades ${liveKey} y ${nextKey} chocan: el filtro le quita cuerpo al tema que sale y la mezcla es corta`;
@@ -996,6 +1020,9 @@ function planTransition(live, next, now = false) {
             reason = compat === 2 ? `tempo cercano y tonalidades armónicas (${liveKey} → ${nextKey}): se pueden fundir largo`
                 : 'tempo cercano: se funden con EQ cambiando los bajos a la mitad';
         }
+    } else if (!r && style !== 'echo') {
+        style = 'echo';
+        reason = `elegiste ${MIX_STYLES[mixStyleSetting]}, pero los tempos están muy lejos para sonar encima sin que suene a ardilla: uso ECHO OUT`;
     } else {
         reason = 'estilo elegido por ti';
     }
@@ -1038,12 +1065,15 @@ function planTransition(live, next, now = false) {
     const q = bars / 4;
 
     if (style === 'blend') {
-        step(0, `Entra ${LB} desde ${formatTime(inStart, false)} con el LOW en −26 y el HI en −8 (te lo dejo listo). Lleva el crossfader al centro`,
-            [{ type: 'startIn' }, set(`deck-${B}-eq-low`, -26, 0, true), set(`deck-${B}-eq-high`, -8, 0, true), set('crossfader', 0, q)]);
-        step(q, `Sube el HI de ${LB} a 0`, [set(`deck-${B}-eq-high`, 0, Math.min(2, q))]);
+        step(0, `Entra ${LB} desde ${formatTime(inStart, false)} con LOW −26, MID −10 y HI −8 (te lo dejo listo). Lleva el crossfader al centro`,
+            [{ type: 'startIn' }, set(`deck-${B}-eq-low`, -26, 0, true), set(`deck-${B}-eq-mid`, -10, 0, true), set(`deck-${B}-eq-high`, -8, 0, true), set('crossfader', 0, q)]);
+        // The mids carry the vocals: two singers at once sounds messy, so swap them
+        step(q, `Cambio de voces: MID de ${LA} a −12, MID y HI de ${LB} a 0`,
+            [set(`deck-${A}-eq-mid`, -12, 1), set(`deck-${B}-eq-mid`, 0, 1), set(`deck-${B}-eq-high`, 0, 1)]);
         step(bars / 2, `Cambio de bajos: LOW de ${LA} a −26 y LOW de ${LB} a 0`, [set(`deck-${A}-eq-low`, -26, 0.25), set(`deck-${B}-eq-low`, 0, 0.25)]);
-        step(3 * q, `Baja el MID de ${LA} a −8 y el HI a −12`, [set(`deck-${A}-eq-mid`, -8, Math.max(1, q - 1)), set(`deck-${A}-eq-high`, -12, Math.max(1, q - 1))]);
-        if (bars >= 8) step(bars - 2, `REVERB (2 beats) en ${LA} para que se desvanezca`, [{ type: 'fx', deck: A, fx: 'reverb', beats: 2, level: 0.5 }]);
+        step(3 * q, `Baja el HI de ${LA} a −12`, [set(`deck-${A}-eq-high`, -12, Math.max(1, q - 1))]);
+        if (pace === 'fast') step(bars - 1, `ECHO 1/2 en ${LA} para despedirlo`, [{ type: 'fx', deck: A, fx: 'echo', beats: 0.5, level: 0.5 }]);
+        else if (bars >= 8) step(bars - 2, `REVERB (2 beats) en ${LA} para que se desvanezca`, [{ type: 'fx', deck: A, fx: 'reverb', beats: 2, level: 0.45 }]);
         step(bars, `Crossfader entero a ${LB}`, [set('crossfader', xIn, 0.5)]);
     } else if (style === 'filter') {
         step(0, `Entra ${LB} desde ${formatTime(inStart, false)} con el LOW en −26 (te lo dejo listo). Crossfader al centro y empieza a subir el FILTER de ${LA} (high-pass) de a poco`,
@@ -1086,7 +1116,17 @@ function startAutoMix(now = false, mode = 'auto') {
     if (!live.isPlaying) { toast(`Dale PLAY al Deck ${live.id} primero`, 'warn'); return false; }
 
     const plan = planTransition(live, next, now);
-    if (plan.synced) matchTempo(next, live, true);
+    live.pitchReturn = null; // freeze the playing deck's tempo during the mix
+    if (plan.synced) {
+        next.pitchReturn = null;
+        next.syncFactor = plan.factor;
+        next.setPitch(plan.rate);
+        setPitchUI(next);
+    } else if (!next.isPlaying) {
+        next.pitchReturn = null;
+        next.setPitch(1); // echo out: the new track plays at its own speed
+        setPitchUI(next);
+    }
     if (!next.isPlaying) {
         next.pause();
         next.seek(plan.inStart);
@@ -1104,6 +1144,7 @@ function startAutoMix(now = false, mode = 'auto') {
 
 function cancelAutoMix(message = 'Mezcla cancelada') {
     if (!autoMix) return;
+    if (typeof Profe !== 'undefined') Profe.onCancel();
     const { out } = autoMix;
     autoMix = null;
     if (out.fx && out.fx.on) out.fx.setOn(false);
@@ -1238,7 +1279,10 @@ function finishAutoMix(early = false) {
     setControl(`deck-${inc.key}-eq-high`, 0);
     setControl('crossfader', plan.xIn);
     if (out.syncOn) out.syncOn = false;
+    inc.syncOn = false;
+    startPitchReturn(inc, 32);
     refreshDeckButtons(out);
+    refreshDeckButtons(inc);
     autoMix = null;
     lastMixDone = { out, in: inc, at: performance.now(), early };
     setCoachTargets([]);
@@ -1414,7 +1458,8 @@ function pickNextTrack(live) {
 
 let autoDJBusy = false;
 async function tickAutoDJ() {
-    if (!autoDJ || autoMix || autoDJBusy) return;
+    const profeAuto = typeof Profe !== 'undefined' && Profe.mode() === 'auto';
+    if (!(autoDJ || profeAuto) || autoMix || autoDJBusy) return;
     const playing = deckList.filter(d => d.isPlaying);
     if (playing.length !== 1) return;
     const live = playing[0];
@@ -1424,6 +1469,7 @@ async function tickAutoDJ() {
         if (!next.track || next.track.played || next.track.demo) {
             const pick = pickNextTrack(live);
             if (!pick) {
+                if (!autoDJ) return; // profe AUTOMÁTICO: just waits for you to load something
                 autoDJ = false;
                 $('autodj-btn').classList.remove('active');
                 toast('AUTO DJ: no quedan temas sin tocar en la librería', 'warn');
@@ -1432,7 +1478,8 @@ async function tickAutoDJ() {
             await loadEntryToDeck(pick, next);
             toast(`AUTO DJ: cargado "${pick.title}" en el Deck ${next.id}`, 'ok');
         }
-        if (next.track && !next.track.played && !autoMix) startAutoMix(false);
+        // AUTO DJ arms right away; the profe arms it itself closer to the out point
+        if (autoDJ && next.track && !next.track.played && !autoMix) startAutoMix(false);
     } finally {
         autoDJBusy = false;
     }
@@ -1673,14 +1720,14 @@ async function checkServer() {
         const data = await res.json();
         server.online = !!data.ytdlp;
         server.ffmpeg = !!data.ffmpeg;
-        status.innerText = server.online
-            ? 'Converter online · pega un link, extrae el audio y cárgalo en un deck'
-            : 'Server running but yt-dlp is missing · run: pip install -r requirements.txt';
-        status.className = `text-[10px] ${server.online ? 'text-emerald-400' : 'text-amber-400'}`;
+        status.title = server.online
+            ? 'Conversor listo: pega un link, extrae el audio y cárgalo en un deck'
+            : 'El servidor corre pero falta yt-dlp: pip install -r requirements.txt';
+        status.className = `w-2.5 h-2.5 rounded-full inline-block shrink-0 ${server.online ? 'bg-emerald-400' : 'bg-amber-400'}`;
     } catch (e) {
         server.online = false;
-        status.innerText = 'Converter offline · start it with: python server.py  →  open http://localhost:8000';
-        status.className = 'text-[10px] text-amber-400';
+        status.title = 'Conversor apagado: corre python server.py y abre http://localhost:8000';
+        status.className = 'w-2.5 h-2.5 rounded-full inline-block shrink-0 bg-amber-400';
     }
 }
 
@@ -1827,6 +1874,7 @@ function setupDeck(deck) {
     pitch.addEventListener('input', () => {
         ensureAudio();
         if (deck.syncOn) { deck.syncOn = false; refreshDeckButtons(deck); }
+        deck.pitchReturn = null;
         deck.setPitch(+pitch.value);
         setPitchUI(deck);
         const follower = otherDeck(deck);
@@ -1941,11 +1989,15 @@ function setupGlobal() {
     $('modal-close').addEventListener('click', () => $('converter-modal').classList.add('hidden'));
 
     // Demos
-    document.querySelectorAll('[data-demo]').forEach(btn => btn.addEventListener('click', () => {
+    $('demo-select').addEventListener('change', (e) => {
+        const v = e.target.value;
+        e.target.value = '';
+        e.target.blur();
+        if (!v) return;
         ensureAudio();
-        const [bpm, variant, d] = btn.dataset.demo.split(',');
+        const [bpm, variant, d] = v.split(',');
         loadDemo(+bpm, +variant, decks[d.toLowerCase()]);
-    }));
+    });
 
     // Assistant
     $('automix-btn').addEventListener('click', () => startAutoMix(false));
@@ -2030,6 +2082,7 @@ function frame(nowMs) {
     $('master-clock').innerText = new Date().toTimeString().split(' ')[0];
     if (audioCtx) {
         tickGlides(nowMs);
+        tickPitchReturn(nowMs);
         deckList.forEach(d => d.tick(nowMs));
         tickAutoMix();
         Profe.tickTricks();
