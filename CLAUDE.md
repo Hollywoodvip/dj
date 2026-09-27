@@ -2,7 +2,9 @@
 
 Two-deck DJ app in the browser (Web Audio API, no build step) + a tiny Python
 server that extracts YouTube audio with yt-dlp. The user is a beginner DJ who
-plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
+talks about reggaeton / latin but whose real library (historial, 66 tracks) is mostly
+melodic techno, tech house and afro house at 113–140 BPM (Anyma, Illumi Music extended
+mixes, live edits); speaks Spanish, and uses a MacBook Air touchpad
 (Chrome, often fullscreen at ~1470×900). **All UI text for the user is Spanish.**
 
 ## Run / test
@@ -26,6 +28,10 @@ merges them into `historial/` (gitignored) and publishes an orphan-style branch
 - `tracks.json`: per track, the analysis (bpm, key, firstBeat/downbeat, mixIn, introEnd,
   breakdowns, outroStart, musicEnd…), `energyPerBar` {low,mid,high}, the user's hot `cues`,
   and `bpmDetected` vs `bpm` (+ `bpmFixed`) = where BPM detection failed.
+- Findings so far (Sept 2026): extended mixes keep kick + bass in the outro, so the old
+  energy-based outro sat at the very end (65/66 tracks got mixBars 8, mixes shrank to 4
+  bars, the user came in 58 bars before the "ideal" point) → analysis v6 `refineOutro`
+  (lead = mids + highs). Live edits / visualizers have no DJ outro: ≥16 bars are kept.
 - `mixes.json`: per mix, the plan (style, pace, bars, dropAtEnd, introLoop…), `startedBarsFromIdeal`,
   master level range vs the track alone, warnings shown, `result` (done/early/cancelled) and
   the user's `rating` (good/bad). No audio is ever uploaded.

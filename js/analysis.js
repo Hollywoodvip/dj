@@ -5,7 +5,9 @@
    ========================================================================== */
 const Analysis = (() => {
     // Bump when the analysis changes: saved tracks get re-analysed in the background
-    const VERSION = 5;
+    // 6: the outro starts where the lead (vocals/melody = mids + highs) leaves, not where
+    //    the kick stops (tech house / melodic techno keep kick + bass to the very end)
+    const VERSION = 6;
     const FPS = 100;            // feature frames per second
     const FEATURE_RATE = 22050; // analysis sample rate
 
@@ -282,6 +284,53 @@ const Analysis = (() => {
         };
     }
 
+    /* ---------------- Outro: where the lead leaves ----------------
+       Learned from the user's real library (historial branch): extended mixes keep the
+       kick and bass through the outro, so total energy put the outro at the very end
+       and mixes shrank to 4 bars. Walk back 8-bar phrases from the end while their
+       mids+highs stay under the body's level: that's the DJ outro (max 32 bars). Tracks
+       without one (live edits, radio edits) still get at least 16 bars to mix over. */
+    function refineOutro(a) {
+        if (!a) return a;
+        a.version = VERSION;
+        if (!a.wave || !a.wave[1] || !a.beatSec || a.musicEnd === undefined) return a;
+        const bar = 4 * a.beatSec, db = a.downbeat;
+        const mid = a.wave[1], high = a.wave[2];
+        const toBar = (t) => Math.round((t - db) / bar);
+        const lu = toBar(a.musicEnd), ie = toBar(a.introEnd), ps = toBar(a.phraseStart ?? db);
+        const old = toBar(a.outroStart);
+        const lead = (from, to) => {
+            let s = 0, n = 0;
+            const j1 = Math.min(mid.length, Math.floor((db + to * bar) * FPS));
+            for (let j = Math.max(0, Math.floor((db + from * bar) * FPS)); j < j1; j++) { s += mid[j] + high[j]; n++; }
+            return n ? s / n : 0;
+        };
+        const phrases = [];
+        for (let p = ps; p < lu; p += 8) if (Math.min(p + 8, lu) - p >= 2) phrases.push({ p, e: lead(p, Math.min(p + 8, lu)) });
+        const body = phrases.filter(x => x.p >= ie && x.p + 8 <= lu).map(x => x.e);
+        let start = old;
+        if (body.length >= 3) {
+            const main = percentile(body, 0.75);
+            let s = null;
+            for (let i = phrases.length - 1; i >= 0; i--) {
+                const x = phrases[i];
+                if (x.p <= ie + 8) break;
+                if (x.e < 0.85 * main) s = x.p; else break;
+            }
+            if (s !== null) start = Math.max(Math.min(old, s), lu - 32, ie + 16);
+        }
+        let mixOutBar = ps + Math.round((start - ps) / 8) * 8;
+        if (mixOutBar > lu - 4) mixOutBar -= 8;
+        const want = lu - ie >= 64 ? 16 : 8;
+        while (lu - mixOutBar < want && mixOutBar - 8 >= ie) mixOutBar -= 8;
+        const room = lu - mixOutBar;
+        a.outroStart = db + start * bar;
+        a.mixOut = db + mixOutBar * bar;
+        a.mixBars = room >= 32 ? 32 : room >= 16 ? 16 : room >= 8 ? 8 : Math.max(4, room);
+        delete a.fastOut;
+        return a;
+    }
+
     /* ---------------- Key detection (chroma + Krumhansl profiles) ---------------- */
     const KEY_RATE = 11025;
     const FFT_SIZE = 4096;
@@ -461,7 +510,7 @@ const Analysis = (() => {
             return band.map(v => Math.min(1, v / ref));
         });
 
-        return {
+        return refineOutro({
             version: VERSION,
             bpm,
             beatSec,
@@ -472,7 +521,7 @@ const Analysis = (() => {
             key,
             wave,
             ...structure,
-        };
+        });
     }
 
     // Beat grid for a track whose tempo is known and starts on the downbeat (demo beats)
@@ -480,5 +529,5 @@ const Analysis = (() => {
         return analyzeTrack(buffer, bpm);
     }
 
-    return { VERSION, FPS, analyzeTrack, simpleGrid, shiftCamelot, keyCompatibility, detectKey };
+    return { VERSION, FPS, refineOutro, analyzeTrack, simpleGrid, shiftCamelot, keyCompatibility, detectKey };
 })();

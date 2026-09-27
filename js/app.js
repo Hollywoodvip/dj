@@ -429,6 +429,8 @@ async function loadLibraryFromStore() {
             delete a.fastOut;
             Store.put(r).catch(() => {});
         }
+        // Analysis v5 → v6 (outro): recomputed from the saved waveform, no re-decoding
+        if (a && a.version === 5 && a.wave) { Analysis.refineOutro(a); Store.put(r).catch(() => {}); }
         library.push({ ...r, played: false });
         libraryId = Math.max(libraryId, r.id);
     });
