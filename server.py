@@ -18,7 +18,9 @@ import argparse
 import json
 import mimetypes
 import os
+import re
 import shutil
+import sys
 import tempfile
 import urllib.parse
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -39,6 +41,9 @@ ALLOWED_HOSTS = {
 MAX_DURATION_SECONDS = 30 * 60
 MAX_FILESIZE_BYTES = 200 * 1024 * 1024
 HAS_FFMPEG = shutil.which("ffmpeg") is not None
+# yt-dlp needs an external JavaScript runtime to unlock YouTube's audio streams
+HAS_JS_RUNTIME = any(shutil.which(r) for r in ("deno", "node", "bun", "qjs"))
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 class ConvertError(Exception):
@@ -77,6 +82,7 @@ def download_audio(url, workdir, as_mp3=False):
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
+        "no_color": True,
         "max_filesize": MAX_FILESIZE_BYTES,
         "match_filter": check_duration,
     }
@@ -89,7 +95,14 @@ def download_audio(url, workdir, as_mp3=False):
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
     except yt_dlp.utils.DownloadError as e:
-        raise ConvertError(f"Download failed: {str(e).replace('ERROR: ', '')}", 502)
+        message = ANSI_ESCAPE.sub("", str(e)).replace("ERROR: ", "").strip()
+        if "403" in message:
+            message += (
+                " | YouTube blocked the download. Fix: update yt-dlp"
+                ' (pip install -U "yt-dlp[default]") and install Deno (brew install deno),'
+                " then restart server.py."
+            )
+        raise ConvertError(f"Download failed: {message}", 502)
 
     files = [f for f in os.listdir(workdir) if f.startswith("audio.")]
     if not files:
@@ -163,10 +176,25 @@ def main():
     if yt_dlp is None:
         print("WARNING: yt-dlp not installed, the YouTube converter will not work.")
         print("         Run: pip install -r requirements.txt")
+    else:
+        print(f"yt-dlp {yt_dlp.version.__version__}")
+    if sys.version_info < (3, 10):
+        print("WARNING: Python 3.9 is too old for current yt-dlp versions. Install Python 3.10+")
+        print("         (macOS: brew install python) and recreate the .venv.")
+    if not HAS_JS_RUNTIME:
+        print("WARNING: no JavaScript runtime found. YouTube downloads will likely fail with 403.")
+        print("         Install Deno (macOS: brew install deno) and restart.")
     if not HAS_FFMPEG:
         print("NOTE: ffmpeg not found. Decks work fine, but 'Download MP3' is disabled.")
 
-    server = ThreadingHTTPServer((args.host, args.port), DJHandler)
+    try:
+        server = ThreadingHTTPServer((args.host, args.port), DJHandler)
+    except OSError as e:
+        if e.errno in (48, 98):  # macOS / Linux "address already in use"
+            print(f"Port {args.port} is already in use: server.py is probably already running in another")
+            print(f"terminal (just open http://localhost:{args.port}), or use --port {args.port + 1}.")
+            sys.exit(1)
+        raise
     shown = "localhost" if args.host in ("127.0.0.1", "0.0.0.0") else args.host
     print(f"WebDJ Pro running at http://{shown}:{args.port}  (Ctrl+C to stop)")
     try:
