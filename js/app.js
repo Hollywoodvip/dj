@@ -76,9 +76,9 @@ function deckTemplate(k) {
             ${k === 'a' ? pitch + jog : jog + pitch}
         </div>
 
-        <div class="grid grid-cols-2 gap-2 text-xs">
+        <div class="grid grid-cols-3 gap-2 text-xs">
             <div class="bg-black/40 p-2 rounded border border-gray-800">
-                <span class="text-[10px] font-bold text-gray-400 block mb-1">HOT CUES <span class="text-gray-600 font-normal">(shift+clic borra)</span></span>
+                <span class="text-[10px] font-bold text-gray-400 block mb-1">HOT CUES <span class="text-gray-600 font-normal">(shift = borra)</span></span>
                 <div class="grid grid-cols-3 gap-1">
                     ${[1, 2, 3].map(n => `<button id="deck-${k}-hot${n}" class="btn-dj py-1.5 rounded font-bold text-gray-300">CUE ${n}</button>`).join('')}
                 </div>
@@ -90,6 +90,15 @@ function deckTemplate(k) {
                 </div>
                 <div class="grid grid-cols-4 gap-1">
                     ${[1, 2, 4, 8].map(b => `<button id="deck-${k}-loop-${b}" class="btn-dj btn-loop py-1.5 rounded font-bold text-gray-300">${b}</button>`).join('')}
+                </div>
+            </div>
+            <div class="bg-black/40 p-2 rounded border border-gray-800">
+                <div class="flex justify-between items-center mb-1">
+                    <span class="text-[10px] font-bold text-gray-400">STEMS</span>
+                    <button id="deck-${k}-stems-btn" class="mini-btn">SEPARAR</button>
+                </div>
+                <div class="grid grid-cols-4 gap-1">
+                    ${STEM_PARTS.map(p => `<button id="deck-${k}-stemb-${p.id}" class="btn-dj btn-stem py-1.5 rounded font-bold text-[10px] text-gray-300" title="${p.label}: prende / apaga ${p.name} de este tema" disabled><i class="fa-solid ${p.icon}"></i> ${p.label}<input id="deck-${k}-stem-${p.id}" type="range" min="0" max="1" step="0.01" value="1" class="hidden"></button>`).join('')}
                 </div>
             </div>
         </div>
@@ -613,6 +622,7 @@ function onDeckLoaded(deck) {
     buildOverviewCache(deck);
     refreshDeckButtons(deck);
     renderLibrary();
+    if (typeof Stems !== 'undefined') Stems.onLoad(deck);
 }
 
 function setPitchUI(deck) {
@@ -951,7 +961,8 @@ function mixMap(deck) {
             st.actions.forEach(a => {
                 if (a.type === 'startIn') marks.push({ t: at(st.at), label: `ENTRA ${I}`, color: '#10b981' });
                 else if (a.type === 'set' && a.id === 'crossfader' && a.value === plan.xIn) marks.push({ t: at(st.at), label: `TODO AL ${I}`, color: '#22d3ee' });
-                else if (a.type === 'set' && a.id === `deck-${m.out.key}-eq-low` && a.value < -20) marks.push({ t: at(st.at), label: 'BAJOS', color: '#f59e0b' });
+                else if (a.type === 'set' && (a.id === `deck-${m.out.key}-eq-low` && a.value < -20 || a.id === `deck-${m.out.key}-stem-bass` && a.value < 0.5)) marks.push({ t: at(st.at), label: 'BAJOS', color: '#f59e0b' });
+                else if (a.type === 'set' && a.id === `deck-${m.out.key}-stem-vocals` && a.value < 0.5) marks.push({ t: at(st.at), label: 'VOCES', color: '#f472b6' });
                 else if (a.type === 'fx') marks.push({ t: at(st.at), label: 'FX', color: '#a78bfa' });
                 else if (a.type === 'pauseOut') marks.push({ t: at(st.at), label: `PAUSA ${O}`, color: '#f43f5e' });
                 else if (a.type === 'pad' && a.pad === 0) marks.push({ t: at(st.at), label: 'SUBIDA', color: '#fbbf24' });
@@ -1141,7 +1152,7 @@ let autoMix = null;
 let autoDJ = false;
 let mixBarsSetting = 'auto';
 let mixStyleSetting = 'auto';
-const MIX_STYLES = { blend: 'BLEND CON EQ', filter: 'FILTER SWEEP', echo: 'ECHO OUT' };
+const MIX_STYLES = { blend: 'BLEND CON EQ', filter: 'FILTER SWEEP', echo: 'ECHO OUT', stems: 'STEMS POR PARTES', mashup: 'MASHUP (VOZ SOBRE BASE)' };
 
 function liveAndNext() {
     if (autoMix) return { live: autoMix.out, next: autoMix.in };
@@ -1262,8 +1273,22 @@ function planTransition(live, next, now = false) {
         reason = 'estilo elegido por ti';
     }
 
+    // Stems: both tracks split and tempos close → swap them part by part (cleaner than EQ)
+    const stemsOk = typeof Stems !== 'undefined' && Stems.ready(live) && Stems.ready(next) && !!r;
+    if (mixStyleSetting === 'auto' && stemsOk && style === 'blend') {
+        style = 'stems';
+        reason = `los dos temas están separados en stems: se cambian por partes (batería, bajo, melodía, voz), más limpio que con EQ${compat === 2 ? ` y las tonalidades combinan (${liveKey} → ${nextKey})` : ''}`;
+    }
+    if ((style === 'stems' || style === 'mashup') && !stemsOk) {
+        style = r ? 'blend' : 'echo';
+        reason = `para ${MIX_STYLES[mixStyleSetting]} separa primero los dos temas (botón SEPARAR en cada deck), y los tempos tienen que estar cerca`;
+    } else if (style === 'mashup' && !next.vocalPhrase) {
+        style = 'stems';
+        reason = `el ${next.id} casi no tiene voz para hacer un mashup: se mezcla por stems`;
+    }
+
     const pace = resolvedPace(live);
-    let bars = style === 'echo' ? 2 : recommendedBars(live, next);
+    let bars = style === 'echo' ? 2 : style === 'mashup' ? (pace === 'fast' ? 8 : 16) : recommendedBars(live, next);
     if (pace === 'fast' && mixBarsSetting === 'auto') bars = Math.min(bars, 8);
     if (style === 'filter' && mixBarsSetting === 'auto') bars = Math.min(bars, compat === 0 ? 8 : 16);
     let target = outPoint(live);
@@ -1302,6 +1327,9 @@ function planTransition(live, next, now = false) {
             } else dropAtEnd = introBars >= bars / 2;
         }
     }
+
+    // Mashup: the new track starts where it sings the most (its chorus), only its voice sounding
+    if (style === 'mashup') { inStart = next.vocalPhrase; dropAtEnd = false; introLoop = null; }
 
     const A = live.key, B = next.key, LA = live.id, LB = next.id;
     const xOut = live === decks.a ? -1 : 1;
@@ -1353,7 +1381,16 @@ function planTransition(live, next, now = false) {
     if (Math.abs(val(`deck-${B}-volume`) - volOut) > 0.05) {
         prep(`Volumen del canal ${LB} igual al del ${LA} (${Math.round(volOut * 100)}%): así la mezcla no sube ni baja de volumen`, [set(`deck-${B}-volume`, volOut)]);
     }
-    const inEq = style === 'blend' ? { low: -26, mid: -10, high: -8 } : style === 'filter' ? { low: -26, mid: -8, high: -4 } : { low: 0, mid: 0, high: 0 };
+    // Which parts of each track sound when the new one comes in
+    if (style === 'stems' || style === 'mashup') {
+        const want = style === 'stems' ? { vocals: 0, drums: 1, bass: 0, other: 0 } : { vocals: 1, drums: 0, bass: 0, other: 0 };
+        const acts = STEM_PARTS.filter(p => Math.abs(val(Stems.id(next, p.id)) - want[p.id]) > 0.1).map(p => set(Stems.id(next, p.id), want[p.id]));
+        STEM_PARTS.filter(p => val(Stems.id(live, p.id)) < 0.5).forEach(p => acts.push(set(Stems.id(live, p.id), 1)));
+        if (acts.length) prep(style === 'stems'
+            ? `Stems del ${LB}: deja solo su BATERÍA prendida (VOZ, BAJO y MEL apagados). Va a entrar por partes`
+            : `Stems del ${LB}: deja solo su VOZ prendida. Va a cantar encima de la base del ${LA}`, acts);
+    }
+    const inEq = style === 'stems' || style === 'mashup' ? { low: 0, mid: 0, high: 0 } : style === 'blend' ? { low: -26, mid: -10, high: -8 } : style === 'filter' ? { low: -26, mid: -8, high: -4 } : { low: 0, mid: 0, high: 0 };
     const eqActs = ['low', 'mid', 'high'].filter(b => Math.abs(val(`deck-${B}-eq-${b}`) - inEq[b]) > 1).map(b => set(`deck-${B}-eq-${b}`, inEq[b]));
     if (Math.abs(val(`deck-${B}-filter`)) > 3) eqActs.push(set(`deck-${B}-filter`, 0));
     if (eqActs.length) {
@@ -1363,14 +1400,31 @@ function planTransition(live, next, now = false) {
     const outEqActs = ['low', 'mid', 'high'].filter(b => Math.abs(val(`deck-${A}-eq-${b}`)) > 1).map(b => set(`deck-${A}-eq-${b}`, 0));
     if (Math.abs(val(`deck-${A}-filter`)) > 3) outEqActs.push(set(`deck-${A}-filter`, 0));
     if (outEqActs.length) prep(`Perillas del ${LA} en 0 antes de empezar la mezcla`, outEqActs);
-    if (live.fx.type !== endFx.fx || live.fx.beats !== endFx.beats) {
+    if (style !== 'stems' && style !== 'mashup' && (live.fx.type !== endFx.fx || live.fx.beats !== endFx.beats)) {
         prep(`Elige el efecto del final: ${FX_LABELS[endFx.fx]} ${beatLabel(endFx.beats)} en el ${LA} (todavía NO lo prendas)`, [{ type: 'fxPrep', deck: A, ...endFx }]);
     }
 
     /* ---------- TRANSITION (bars counted from the moment the new track comes in) ---------- */
     const playText = next.isPlaying ? `El ${LB} ya está sonando: sigue desde el próximo compás`
         : `Dale PLAY al ${LB} (entra justo en el compás aunque lo aprietes un poco antes o después)`;
-    if (style === 'blend') {
+    const SI = (d, p) => (typeof Stems !== 'undefined' ? Stems.id(d, p) : '');
+    if (style === 'stems') {
+        // Part by part: drums, then melody, then the bass swap, then the voices
+        step(0, `${playText}: entra solo su BATERÍA. Lleva el crossfader al centro (se mueve solo en ${barsWord(q)})`, [{ type: 'startIn' }, set('crossfader', 0, q)]);
+        step(q, `Entra la MELODÍA del ${LB}`, [set(SI(next, 'other'), 1, 1)]);
+        step(bars / 2, `Cambio de bajos con stems: BAJO del ${LA} OFF y BAJO del ${LB} ON, al mismo tiempo (un clic hace los dos)`, [set(SI(live, 'bass'), 0, 0.25), set(SI(next, 'bass'), 1, 0.25)]);
+        step(3 * q, `Cambio de voces: VOZ y MELODÍA del ${LA} OFF, VOZ del ${LB} ON`, [set(SI(live, 'vocals'), 0, 1), set(SI(live, 'other'), 0, 1), set(SI(next, 'vocals'), 1, 1)]);
+        step(bars, `Crossfader entero al ${LB} (la batería del ${LA} se va con él)`, [set('crossfader', xIn, 1)]);
+        padSteps();
+    } else if (style === 'mashup') {
+        // The new track's voice over the old one's beat, then the whole new track drops in
+        const clash = compat === 0;
+        step(0, `${playText}: suena solo su VOZ. Apaga la VOZ del ${LA}${clash ? ' y su MELODÍA (los tonos chocan)' : ''} y lleva el crossfader al centro`,
+            [{ type: 'startIn' }, set(SI(live, 'vocals'), 0, 0.5), ...(clash ? [set(SI(live, 'other'), 0, 0.5)] : []), set('crossfader', 0, 1)]);
+        step(bars, `¡Entra el ${LB} completo! BATERÍA, BAJO y MELODÍA del ${LB} ON y crossfader entero al ${LB}`,
+            [set(SI(next, 'drums'), 1, 0.25), set(SI(next, 'bass'), 1, 0.25), set(SI(next, 'other'), 1, 0.25), set('crossfader', xIn, 1)]);
+        step(bars - 0.5, `Opcional: pad IMPACTO justo cuando entra el ${LB} completo`, [{ type: 'pad', pad: 1, bar: bars }]);
+    } else if (style === 'blend') {
         // Glides are in bars: a click starts the move and the knob turns by itself at DJ speed
         step(0, `${playText} y lleva el crossfader al centro (se mueve solo en ${barsWord(q)})`, [{ type: 'startIn' }, set('crossfader', 0, q)]);
         // The mids carry the vocals: two singers at once sounds messy, so swap them
@@ -1493,6 +1547,7 @@ function cancelAutoMix(message = 'Mezcla cancelada') {
     autoMix = null;
     if (out.fx && out.fx.on) out.fx.setOn(false);
     if (plan.introLoop && inc.loop.active) { inc.exitLoop(); refreshDeckButtons(inc); }
+    if (typeof Stems !== 'undefined') [out, inc].forEach(d => STEM_PARTS.forEach(p => glideControl(Stems.id(d, p.id), 1, 400)));
     deckList.forEach(d => resetChannel(d, 400));
     setCoachTargets([]);
     toast(message, 'warn');
@@ -1685,6 +1740,7 @@ function formatTarget(t) {
     if (t.id === 'crossfader') return t.value === 0 ? 'CENTRO' : t.value < 0 ? 'A' : 'B';
     if (t.id.endsWith('-pitch')) { const pct = ((t.value - 1) * 100).toFixed(1); return `${pct >= 0 ? '+' : ''}${pct}%`; }
     if (t.id.endsWith('-fx-level') || t.id.endsWith('-volume')) return `${Math.round(t.value * 100)}%`;
+    if (t.id.includes('-stem-')) return t.value >= 0.5 ? 'ON' : 'OFF';
     if (t.id.endsWith('filter')) return t.value > 0 ? `HPF ${t.value}` : t.value < 0 ? `LPF ${-t.value}` : '0';
     return `${t.value > 0 ? '+' : ''}${t.value} dB`;
 }
@@ -1751,6 +1807,18 @@ function litTargetFor(el) {
     return currentTargets.find(t => t.id === input.id && t.value !== undefined) || { id: input.id, value: +host.dataset.targetValue };
 }
 
+// The stems of both tracks got ready while a guided mix was waiting: redo it with stems
+function replanForStems() {
+    const m = autoMix;
+    if (!m || m.started || !['auto', 'stems', 'mashup'].includes(mixStyleSetting)) return;
+    if (!(Stems.ready(m.out) && Stems.ready(m.in)) || ['stems', 'mashup'].includes(m.plan.style)) return;
+    const mode = m.mode;
+    m.log = null;
+    autoMix = null;
+    setCoachTargets([]);
+    startAutoMix(false, mode);
+}
+
 let lastMixDone = null;
 function finishAutoMix(early = false) {
     const m = autoMix;
@@ -1762,7 +1830,10 @@ function finishAutoMix(early = false) {
     if (out.loop.active && !out.isPlaying) out.exitLoop(); // the stretch loop is done
     ['low', 'mid', 'high'].forEach(b => setControl(`deck-${out.key}-eq-${b}`, 0));
     setControl(`deck-${out.key}-filter`, 0);
+    // The paused deck gets all its parts back for next time (nobody hears it)
+    if (typeof Stems !== 'undefined') STEM_PARTS.forEach(p => setControl(Stems.id(out, p.id), 1));
     if (m.mode === 'auto') {
+        if (typeof Stems !== 'undefined') STEM_PARTS.forEach(p => glideControl(Stems.id(inc, p.id), 1, 1000));
         // The new track's knobs go back to 0 over a bar (a snap would jump the volume)
         resetChannel(inc, clamp(4 * inc.beatSec / inc.playbackRate * 1000, 1200, 2500));
         if (out.isPlaying) glideControl('crossfader', plan.xIn, 1500); else setControl('crossfader', plan.xIn);
@@ -1783,6 +1854,7 @@ function finishAutoMix(early = false) {
     afterMixTargets = m.mode === 'guide'
         ? ['low', 'mid', 'high'].map(b => `deck-${inc.key}-eq-${b}`).concat([`deck-${inc.key}-filter`])
             .filter(id => Math.abs(+$(id).value) > 1).map(id => ({ id, value: 0, glide: 1 }))
+            .concat(typeof Stems === 'undefined' ? [] : STEM_PARTS.map(p => Stems.id(inc, p.id)).filter(id => +$(id).value < 0.5).map(id => ({ id, value: 1, glide: 0.5 })))
         : [];
     out.freshLoad = false;
     inc.freshLoad = false;
@@ -3037,6 +3109,7 @@ window.addEventListener('DOMContentLoaded', () => {
     Profe.init();
     Cue.init();
     Historial.init();
+    Stems.init();
     loadLibraryFromStore();
     loadPadSamples();
     requestAnimationFrame(frame);

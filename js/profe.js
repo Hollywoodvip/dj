@@ -728,6 +728,7 @@ const Profe = (() => {
         if (part.startsWith('fxt-')) return `${FX_LABELS[part.slice(4)]} del ${D}`;
         if (part.startsWith('fxb-')) return `beats ${beatLabel(+part.slice(4).replace('_', '.'))} del ${D}`;
         if (part.startsWith('loop-')) return `loop del ${D}`;
+        if (part.startsWith('stem-')) { const s = STEM_PARTS.find(x => x.id === part.slice(5)); return `${s ? s.label : part} del ${D}`; }
         return part;
     }
 

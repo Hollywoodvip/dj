@@ -42,6 +42,12 @@ jack) separately. CUE A / CUE B send a channel only to your headphones; CUE ↔ 
 blends in what the crowd hears. Chrome needs microphone permission once, only to show
 the device names.
 
+**STEMS (voice / drums / bass / melody):** `pip install demucs` (big: PyTorch, and the
+first separation downloads the model, ~80 MB). Then SEPARAR on a deck splits the track
+(1–3 min, cached per track); VOZ / BAT / BAJO / MEL turn each part on and off, and the
+DJ PROFE guides two new mixes: STEMS (part by part) and MASHUP (one track's voice over
+the other's beat). Apple Silicon: `WEBDJ_STEMS_DEVICE=mps python server.py` may be faster.
+
 **Share your history:** COMPARTIR HISTORIAL (library) saves the analysis of your tracks
 (never the audio) and how your mixes went (with your 👍/👎) in `historial/` and publishes
 it on the repo's `historial` branch, so the analysis and the DJ PROFE can be tuned with

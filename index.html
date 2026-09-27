@@ -130,6 +130,9 @@
         /* Crossfader: where the mix plan wants it right now */
         .xf-plan { position: absolute; top: -5px; width: 2px; height: calc(100% + 10px); background: #34d399; border-radius: 1px; pointer-events: none; box-shadow: 0 0 6px rgba(52,211,153,0.8); transition: left 0.2s linear; }
         .xf-plan::before { content: 'PLAN'; position: absolute; bottom: -11px; left: 50%; transform: translateX(-50%); font-size: 8px; font-weight: 700; color: #34d399; }
+        .btn-stem:disabled { opacity: 0.35; cursor: not-allowed; }
+        .btn-stem.stem-on { background: #064e3b; border-color: #10b981; color: #d1fae5; }
+        .btn-stem.stem-off { background: #1f2937; color: #6b7280; text-decoration: line-through; }
         .btn-pfl.active { background: #065f46; border-color: #34d399; color: #d1fae5; box-shadow: 0 0 8px rgba(52,211,153,0.5); }
         .pad.armed { border-color: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.55); }
         .pad.pad-custom { border-color: #7c3aed; }
@@ -307,6 +310,8 @@
                     <button data-mixstyle="blend" class="btn-dj btn-mode px-2 py-1 rounded font-bold" title="Fundir con EQ y cambio de bajos">BLEND</button>
                     <button data-mixstyle="filter" class="btn-dj btn-mode px-2 py-1 rounded font-bold" title="El que sale se va con el filtro">FILTER</button>
                     <button data-mixstyle="echo" class="btn-dj btn-mode px-2 py-1 rounded font-bold" title="Corte con eco, el otro entra en su drop">ECHO</button>
+                    <button data-mixstyle="stems" class="btn-dj btn-mode px-2 py-1 rounded font-bold" title="Con los dos temas separados: entra por partes (batería, melodía, bajo, voz)">STEMS</button>
+                    <button data-mixstyle="mashup" class="btn-dj btn-mode px-2 py-1 rounded font-bold" title="La voz del tema nuevo canta sobre la base del que suena, y después entra completo">MASHUP</button>
                     <span class="text-[10px] text-gray-400 ml-2 mr-1">LARGO</span>
                     <button data-mixbars="auto" class="btn-dj btn-mode active px-2 py-1 rounded font-bold">AUTO</button>
                     <button data-mixbars="8" class="btn-dj btn-mode px-2 py-1 rounded font-bold">8</button>
@@ -471,5 +476,6 @@
     <script src="js/profe.js"></script>
     <script src="js/cue.js"></script>
     <script src="js/history.js"></script>
+    <script src="js/stems.js"></script>
 </body>
 </html>

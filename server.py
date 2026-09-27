@@ -6,6 +6,8 @@ Serves the DJ app and exposes a YouTube audio extractor backed by yt-dlp:
     GET /api/status                      -> {"ok": true, "ffmpeg": bool}
     GET /api/convert?url=<youtube url>   -> audio bytes (m4a/webm) for the decks
     GET /api/convert?url=...&format=mp3&download=1
+    GET  /api/stems?hash=<sha1>          -> status of a track's stems (vocals/drums/bass/other)
+    POST /api/stems?hash=<sha1>  (wav)   -> separates it with Demucs in the background
     POST /api/history {tracks, mixes}    -> saves historial/ and publishes it on the
                                             repo's `historial` branch (no audio)
                                          -> 320 kbps MP3 file (requires ffmpeg)
@@ -17,7 +19,9 @@ Only download content you own or have permission to use.
 """
 
 import argparse
+import importlib.util
 import json
+import threading
 import mimetypes
 import os
 import re
@@ -47,6 +51,9 @@ MAX_FILESIZE_BYTES = 200 * 1024 * 1024
 HAS_FFMPEG = shutil.which("ffmpeg") is not None
 # yt-dlp needs an external JavaScript runtime to unlock YouTube's audio streams
 HAS_JS_RUNTIME = any(shutil.which(r) for r in ("deno", "node", "bun", "qjs"))
+HAS_DEMUCS = importlib.util.find_spec("demucs") is not None
+STEMS_DIR = os.path.join(ROOT, "stems-cache")
+STEM_NAMES = ("vocals", "drums", "bass", "other")
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 
 
@@ -231,6 +238,92 @@ def publish_history():
         return False, str(e)
 
 
+# ---------------- Stems (Demucs): voice / drums / bass / melody of a track ----------------
+# The browser sends the track already decoded (WAV), so the stems line up sample by
+# sample with what the deck plays. Results are cached per track (stems-cache/<hash>/),
+# one separation at a time (it uses the whole CPU).
+STEM_JOBS = {}
+STEM_LOCK = threading.Lock()
+PERCENT = re.compile(r"(\d{1,3})%\|")
+
+
+def stem_files(h):
+    folder = os.path.join(STEMS_DIR, h)
+    if not os.path.isdir(folder):
+        return None
+    files = {}
+    for name in STEM_NAMES:
+        for ext in ("flac", "wav"):
+            if os.path.exists(os.path.join(folder, f"{name}.{ext}")):
+                files[name] = f"/stems-cache/{h}/{name}.{ext}"
+                break
+    return files if len(files) == len(STEM_NAMES) else None
+
+
+def separate(input_path, out_dir, progress):
+    """Run Demucs (htdemucs, 4 stems). Calls progress(0..100). Returns {stem: path}."""
+    cmd = [sys.executable, "-m", "demucs", "-n", "htdemucs", "-o", out_dir, "--filename", "{stem}.{ext}"]
+    if HAS_FFMPEG:
+        cmd.append("--flac")
+    device = os.environ.get("WEBDJ_STEMS_DEVICE")  # e.g. "mps" on Apple Silicon (faster, if it works)
+    if device:
+        cmd += ["-d", device]
+    cmd.append(input_path)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+    tail, buf = [], ""
+    while True:
+        ch = proc.stderr.read(1)
+        if not ch:
+            break
+        if ch in "\r\n":
+            m = PERCENT.search(buf)
+            if m:
+                progress(int(m.group(1)))
+            elif buf.strip():
+                tail = (tail + [buf.strip()])[-8:]
+            buf = ""
+        else:
+            buf += ch
+    proc.wait()
+    if proc.returncode != 0:
+        raise RuntimeError(ANSI_ESCAPE.sub("", " | ".join(tail))[-400:] or f"demucs salió con código {proc.returncode}")
+    model_dir = os.path.join(out_dir, "htdemucs")
+    found = {}
+    for name in STEM_NAMES:
+        for ext in ("flac", "wav"):
+            p = os.path.join(model_dir, f"{name}.{ext}")
+            if os.path.exists(p):
+                found[name] = p
+    if len(found) != len(STEM_NAMES):
+        raise RuntimeError("Demucs no produjo las 4 pistas")
+    return found
+
+
+def run_stem_job(h, input_path):
+    job = STEM_JOBS[h]
+    job.update(status="queued", progress=0)
+    with STEM_LOCK:  # one separation at a time
+        job.update(status="working", progress=0)
+        work = tempfile.mkdtemp(prefix="webdj-stems-")
+        try:
+            found = separate(input_path, work, lambda p: job.update(progress=max(job.get("progress", 0), min(99, p))))
+            folder = os.path.join(STEMS_DIR, h)
+            os.makedirs(folder, exist_ok=True)
+            for name, path in found.items():
+                shutil.move(path, os.path.join(folder, f"{name}{os.path.splitext(path)[1]}"))
+            job.update(status="done", progress=100)
+            print(f"Stems listos: {h[:10]}")
+        except Exception as e:  # reported to the page
+            job.update(status="error", message=str(e))
+            print(f"Stems error ({h[:10]}): {e}")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+            try:
+                os.remove(input_path)
+            except OSError:
+                pass
+
+
 SCRIPT_TAG = re.compile(r'src="(js/[\w.-]+\.js)"')
 
 
@@ -247,12 +340,59 @@ class DJHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/status":
-            return self.send_json(200, {"ok": True, "ytdlp": yt_dlp is not None, "ffmpeg": HAS_FFMPEG, "version": app_version()})
+            return self.send_json(200, {"ok": True, "ytdlp": yt_dlp is not None, "ffmpeg": HAS_FFMPEG, "stems": HAS_DEMUCS, "version": app_version()})
         if parsed.path in ("/", "/index.html"):
             return self.send_index()
         if parsed.path == "/api/convert":
             return self.handle_convert(urllib.parse.parse_qs(parsed.query))
+        if parsed.path == "/api/stems":
+            return self.handle_stems_status(urllib.parse.parse_qs(parsed.query))
         return super().do_GET()
+
+    @staticmethod
+    def stem_hash(query):
+        h = (query.get("hash") or [""])[0].lower()
+        return h if re.fullmatch(r"[0-9a-f]{16,64}", h) else None
+
+    def handle_stems_status(self, query):
+        h = self.stem_hash(query)
+        if not h:
+            return self.send_json(400, {"error": "hash inválido"})
+        files = stem_files(h)
+        if files:
+            return self.send_json(200, {"status": "done", "files": files})
+        job = STEM_JOBS.get(h)
+        if job:
+            return self.send_json(200, {k: job.get(k) for k in ("status", "progress", "message")})
+        return self.send_json(200, {"status": "none", "available": HAS_DEMUCS})
+
+    def handle_stems_start(self, query):
+        h = self.stem_hash(query)
+        if not h:
+            return self.send_json(400, {"error": "hash inválido"})
+        if stem_files(h):
+            return self.send_json(200, {"status": "done", "files": stem_files(h)})
+        job = STEM_JOBS.get(h)
+        if job and job.get("status") in ("queued", "working"):
+            return self.send_json(200, {k: job.get(k) for k in ("status", "progress", "message")})
+        if not HAS_DEMUCS and not getattr(separate, "stub", False):  # tests swap in a stub separator
+            return self.send_json(500, {"error": "Demucs no está instalado. En la terminal: pip install demucs (y reinicia python server.py)"})
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > 400 * 1024 * 1024:
+            return self.send_json(400, {"error": "Audio vacío o demasiado grande"})
+        os.makedirs(STEMS_DIR, exist_ok=True)
+        input_path = os.path.join(STEMS_DIR, f"{h}.input.wav")
+        remaining = length
+        with open(input_path, "wb") as f:
+            while remaining > 0:
+                chunk = self.rfile.read(min(1 << 20, remaining))
+                if not chunk:
+                    break
+                f.write(chunk)
+                remaining -= len(chunk)
+        STEM_JOBS[h] = {"status": "queued", "progress": 0}
+        threading.Thread(target=run_stem_job, args=(h, input_path), daemon=True).start()
+        return self.send_json(200, {"status": "queued", "progress": 0})
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -260,6 +400,8 @@ class DJHandler(SimpleHTTPRequestHandler):
             return self.handle_mp3(urllib.parse.parse_qs(parsed.query))
         if parsed.path == "/api/history":
             return self.handle_history()
+        if parsed.path == "/api/stems":
+            return self.handle_stems_start(urllib.parse.parse_qs(parsed.query))
         return self.send_json(404, {"error": "Not found"})
 
     def handle_history(self):
@@ -399,6 +541,9 @@ def main():
         print("         Install Deno (macOS: brew install deno) and restart.")
     if not HAS_FFMPEG:
         print("NOTE: ffmpeg not found. Decks work fine, but 'Download MP3' is disabled.")
+    if not HAS_DEMUCS:
+        print("NOTE: Demucs not installed: STEMS (voz / batería / bajo / melodía) disabled.")
+        print("      To enable them: pip install demucs   (first separation downloads the model, ~80 MB)")
 
     try:
         server = ThreadingHTTPServer((args.host, args.port), DJHandler)

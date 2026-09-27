@@ -71,6 +71,16 @@ merges them into `historial/` (gitignored) and publishes an orphan-style branch
   On a MacBook the internal speakers and the headphone jack are ONE output (plugging
   headphones mutes the speakers and 'default' becomes the jack): `sameOutput()` resolves
   'default' by groupId and refuses/warns when speakers and headphones are the same device.
+- `js/stems.js` — **STEMS** (VOZ / BAT / BAJO / MEL): `SEPARAR` sends the deck's decoded
+  audio as WAV to `POST /api/stems?hash=` (sha1 of the track bytes); server.py runs Demucs
+  (htdemucs, 4 stems, one job at a time, cached in `stems-cache/<hash>/`, gitignored) and the
+  page polls `GET /api/stems`. `Deck.setStems()` plays the 4 buffers in sync (`deck.sources`),
+  each through its own gain; each part is a hidden 0–1 input `deck-k-stem-<part>` so the
+  coach lights/glides it like a knob. Plan styles `stems` (auto when both decks are split:
+  drums in, melody, bass swap, voice swap) and `mashup` (the new track's voice from its
+  loudest-vocal phrase `vocalPhrase` over the old one's beat, then the full track).
+  Demucs can't be installed in the sandbox (PyTorch/model hosts blocked): tests monkeypatch
+  `server.separate` with ffmpeg filters (`separate.stub = True`).
 - `js/history.js` — `Historial`: mix log (localStorage `webdj-mixlog`, hooks in
   startAutoMix / guidedStart / finish / cancel, 👍/👎 in the after-mix tip) + export.
 - `js/profe.js` — **DJ PROFE**: tips from the musical context, tricks timed to

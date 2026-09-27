@@ -1,1 +1,3 @@
 yt-dlp[default]>=2025.11.12
+# Optional: STEMS (voz / batería / bajo / melodía). Large install (PyTorch):
+# pip install demucs

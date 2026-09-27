@@ -11,7 +11,9 @@ class Deck {
         this.audioBuffer = null;
         this.analysis = null;
         this.track = null;         // library entry
-        this.sourceNode = null;
+        this.sourceNode = null;   // main source (the full track, or the first stem)
+        this.sources = [];        // every source playing now (1, or 4 stems in sync)
+        this.stems = null;        // { buffers: {vocals, drums, bass, other}, gains: {...} }
         this.isPlaying = false;
         this.startTime = 0;
         this.pauseOffset = 0;
@@ -98,6 +100,7 @@ class Deck {
     /* ---------- transport ---------- */
     load(buffer, analysis, track) {
         if (this.isPlaying) this.pause();
+        this.clearStems();
         this.audioBuffer = buffer;
         this.analysis = analysis;
         this.track = track;
@@ -122,21 +125,26 @@ class Deck {
         if (!this.audioBuffer || !audioCtx) return;
         if (this.isPlaying) this.stopSource();
 
-        const src = audioCtx.createBufferSource();
-        src.buffer = this.audioBuffer;
-        src.playbackRate.value = this.playbackRate;
-        if (this.loop.active) {
-            src.loop = true;
-            src.loopStart = this.loop.start;
-            src.loopEnd = this.loop.end;
-        }
-        src.connect(this.trim);
-        this.sourceNode = src;
-
+        // With stems: 4 sources started on the same sample, each through its own level
+        const parts = this.stems ? Object.keys(this.stems.buffers).map(n => [this.stems.buffers[n], this.stems.gains[n]]) : [[this.audioBuffer, this.trim]];
         const startPos = Math.max(0, Math.min(offset !== null ? offset : this.pauseOffset, this.duration - 0.01));
         const startAt = Math.max(when, audioCtx.currentTime);
+        this.sources = parts.map(([buffer, dest]) => {
+            const s = audioCtx.createBufferSource();
+            s.buffer = buffer;
+            s.playbackRate.value = this.playbackRate;
+            if (this.loop.active) {
+                s.loop = true;
+                s.loopStart = this.loop.start;
+                s.loopEnd = this.loop.end;
+            }
+            s.connect(dest);
+            s.start(startAt, Math.min(startPos, buffer.duration - 0.01));
+            return s;
+        });
+        const src = this.sources[0];
+        this.sourceNode = src;
         this.startTime = startAt - startPos / this.playbackRate;
-        src.start(startAt, startPos);
         this.isPlaying = true;
 
         src.onended = () => {
@@ -155,11 +163,36 @@ class Deck {
     }
 
     stopSource() {
-        if (this.sourceNode) {
-            const src = this.sourceNode;
-            this.sourceNode = null;
-            try { src.stop(); src.disconnect(); } catch (e) {}
-        }
+        this.sourceNode = null;
+        this.sources.forEach(src => { try { src.stop(); src.disconnect(); } catch (e) {} });
+        this.sources = [];
+    }
+
+    /* ---------- stems: voice / drums / bass / melody of this track ---------- */
+    setStems(buffers) {
+        const pos = this.getCurrentTime();
+        const wasPlaying = this.isPlaying;
+        if (wasPlaying) this.stopSource();
+        this.clearStems();
+        const gains = {};
+        Object.keys(buffers).forEach(n => {
+            gains[n] = audioCtx.createGain();
+            gains[n].connect(this.trim);
+        });
+        this.stems = { buffers, gains };
+        if (wasPlaying) { this.isPlaying = false; this.play(pos); }
+    }
+    clearStems() {
+        if (!this.stems) return;
+        const wasPlaying = this.isPlaying;
+        const pos = this.getCurrentTime();
+        if (wasPlaying) this.stopSource();
+        Object.values(this.stems.gains).forEach(g => { try { g.disconnect(); } catch (e) {} });
+        this.stems = null;
+        if (wasPlaying) { this.isPlaying = false; this.play(pos); }
+    }
+    setStemLevel(name, v) {
+        if (this.stems && this.stems.gains[name]) this.stems.gains[name].gain.setTargetAtTime(v * v, audioCtx.currentTime, 0.015);
     }
 
     getCurrentTime() {
@@ -189,7 +222,7 @@ class Deck {
             const pos = this.getCurrentTime();
             this.playbackRate = rate;
             this.startTime = audioCtx.currentTime - pos / rate;
-            this.sourceNode.playbackRate.setValueAtTime(rate, audioCtx.currentTime);
+            this.sources.forEach(s => s.playbackRate.setValueAtTime(rate, audioCtx.currentTime));
         } else {
             this.playbackRate = rate;
         }
@@ -203,11 +236,11 @@ class Deck {
     /* ---------- loops & roll ---------- */
     setLoop(start, length, beats) {
         this.loop = { active: true, start, end: Math.min(start + length, this.duration), beats };
-        if (this.sourceNode) {
-            this.sourceNode.loopStart = this.loop.start;
-            this.sourceNode.loopEnd = this.loop.end;
-            this.sourceNode.loop = true;
-        }
+        this.sources.forEach(s => {
+            s.loopStart = this.loop.start;
+            s.loopEnd = this.loop.end;
+            s.loop = true;
+        });
     }
 
     exitLoop() {
@@ -215,7 +248,7 @@ class Deck {
         const pos = this.getCurrentTime();
         this.loop.active = false;
         if (this.isPlaying && this.sourceNode) {
-            this.sourceNode.loop = false;
+            this.sources.forEach(s => { s.loop = false; });
             this.startTime = audioCtx.currentTime - pos / this.playbackRate;
         }
     }
