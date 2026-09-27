@@ -56,6 +56,8 @@ real sessions. It needs `git push` permission from that terminal.
 **Also:** 8 sampler pads that land on the beat by themselves (riser and snare roll end exactly on the drop; impact, reverse cymbal, downlifter, sub drop, stab in the track's key, air horn), and you can drag your own .wav/.mp3 onto any pad (saved in the browser), library with match stars,
 keyboard shortcuts for everything (press **H** in the app).
 
+**Start (Mac):** in the `dj` folder run `./iniciar.sh` — it activates `.venv`, pulls the latest version and starts the server (a new terminal otherwise says `command not found: python`).
+
 ## Run it
 
 Needs **Python 3.10+** and **[Deno](https://deno.com)** (yt-dlp uses it to unlock
