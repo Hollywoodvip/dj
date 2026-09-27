@@ -232,6 +232,19 @@ class Deck {
         this.setLoop(start, len, beats);
     }
 
+    // Loop that starts on a bar (the next one, or earlier if the music ends too soon), so it
+    // repeats whole bars in time: used to stretch the end of a track while the next one comes in
+    loopFromBar(beats, musicEnd = this.duration) {
+        if (!this.audioBuffer) return;
+        const len = beats * this.beatSec;
+        const bar = 4 * this.beatSec;
+        const pos = this.getCurrentTime();
+        let start = this.nextBarAfter(pos + 0.05);
+        const end = Math.min(musicEnd, this.duration);
+        while (start + len > end && start - bar > this.firstBeat) start -= bar;
+        this.setLoop(start, len, beats);
+    }
+
     startRoll(beats) {
         if (!this.isPlaying) return;
         const pos = this.getCurrentTime();
@@ -334,6 +347,10 @@ function initAudioEngine() {
 
     Mixer.master = audioCtx.createGain();
     Mixer.master.connect(Mixer.limiter);
+    // Level meter of the whole mix (before the limiter): the profe watches that it stays even
+    Mixer.meter = audioCtx.createAnalyser();
+    Mixer.meter.fftSize = 2048;
+    Mixer.master.connect(Mixer.meter);
     Mixer.xfA = audioCtx.createGain();
     Mixer.xfB = audioCtx.createGain();
     Mixer.sampler = audioCtx.createGain();

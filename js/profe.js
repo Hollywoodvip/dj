@@ -244,6 +244,8 @@ const Profe = (() => {
 
         // Guided mix: the profe repeats what to do right now
         if (autoMix && autoMix.mode === 'guide') {
+            if (autoMix.loopTarget) add({ id: 'guide-loop', p: 105, icon: 'fa-repeat', title: `Alarga el ${autoMix.out.id} con un LOOP`,
+                text: `Al ${autoMix.out.id} le queda muy poca música para terminar la mezcla. Prende el LOOP 8 del ${autoMix.out.id} (brilla): repite sus últimos 2 compases a tiempo, así nadie nota que se acaba, mientras entra el ${autoMix.in.id}. Se suelta solo cuando lo pausas.` });
             const pending = autoMix.plan.steps.filter(s => s.fired && s.pending && s.pending.length).slice(-1)[0];
             const nextStep = autoMix.plan.steps.find(s => !s.fired);
             const ready = pending && !pending.prep && !autoMix.started && pending.actions.some(a => a.type === 'startIn');
@@ -386,10 +388,7 @@ const Profe = (() => {
     const since = { loop: { a: null, b: null }, filter: { a: null, b: null } };
     const bars = (deck, ms) => ms / 1000 / (4 * deck.beatSec / deck.playbackRate);
 
-    function xfGain(deck) {
-        const x = +$('crossfader').value;
-        return deck === decks.a ? Math.cos((x + 1) * 0.25 * Math.PI) : Math.sin((x + 1) * 0.25 * Math.PI);
-    }
+    const xfGain = (deck) => xfCurve(deck);
     const audible = (d) => d.isPlaying && d.analysis && xfGain(d) > 0.3 && +$(`deck-${d.key}-volume`).value > 0.05;
     const val = (id) => +$(id).value;
 
@@ -422,8 +421,19 @@ const Profe = (() => {
                 }
                 else add('ok', `${name} ${D} en zona segura`, lim.tip);
             }
+            // About to run out of music with nothing coming in: a loop buys time
+            const other = otherDeck(d);
+            const left = musicLeftBars(d);
+            const stretching = !other.isPlaying && left < 12;
+            if (!d.loop.active && !d.slip && on.length === 1 && !other.isPlaying && left > 0 && left < 8) {
+                const run = () => stretchLoop(d);
+                add('warn', `Al ${D} le quedan ${Math.max(1, Math.round(left))} compases de música`, other.analysis
+                    ? `Si todavía no mezclas el ${other.id}, prende el LOOP 8 del ${D}: repite los últimos 2 compases a tiempo y te da tiempo.`
+                    : `No hay otro tema cargado: prende el LOOP 8 del ${D} (repite 2 compases a tiempo) y carga el siguiente en el ${other.id}.`,
+                    { run, light: [{ id: `deck-${k}-loop-8`, label: 'LOOP · clic', run }] });
+            }
             // Loop left running
-            if (since.loop[k] && bars(d, now - since.loop[k]) > 8) {
+            if (since.loop[k] && !stretching && bars(d, now - since.loop[k]) > 8) {
                 const run = () => { d.exitLoop(); refreshDeckButtons(d); };
                 add('warn', `Loop del ${D} hace ${Math.round(bars(d, now - since.loop[k]))} comp.`, 'Un loop sirve para alargar una parte unos compases; si lo dejas mucho la gente siente que el tema se pegó.',
                     { run, light: [{ id: `deck-${k}-loop-${d.loop.beats}`, label: 'SOLTAR · clic', run }] });
@@ -484,6 +494,64 @@ const Profe = (() => {
         return out;
     }
 
+    /* ---------------- the mix's volume should stay even ---------------- */
+    // The level of the whole mix is compared with how loud the track alone was before the mix
+    const level = { buf: null, short: null, ref: null, last: 0, lowSince: 0, highSince: 0 };
+    function tickLevel() {
+        if (!Mixer.meter) return;
+        const now = performance.now();
+        const dt = level.last ? Math.min(0.2, (now - level.last) / 1000) : 0;
+        level.last = now;
+        if (!level.buf) level.buf = new Float32Array(Mixer.meter.fftSize);
+        Mixer.meter.getFloatTimeDomainData(level.buf);
+        let sum = 0;
+        for (let i = 0; i < level.buf.length; i++) sum += level.buf[i] * level.buf[i];
+        const db = 10 * Math.log10(sum / level.buf.length + 1e-10);
+        const on = deckList.filter(audible);
+        if (!on.length || db < -50) { level.lowSince = level.highSince = 0; return; }
+        const ease = (v, target, tau) => (v === null ? target : v + (target - v) * (1 - Math.exp(-dt / tau)));
+        level.short = ease(level.short, db, 1.5);
+        // Reference: the last bars of one track playing alone (its outro, not its loudest part)
+        const mixing = on.length === 2 || (autoMix && autoMix.started);
+        if (!mixing && on.length === 1 && !on[0].fx.on && !on[0].trick) level.ref = ease(level.ref, db, 3);
+        // A filter going up is tension on purpose (into a drop): not a volume problem
+        const filtering = deckList.some(d => Math.abs(val(`deck-${d.key}-filter`)) > 20);
+        const diff = mixing && level.ref !== null && !filtering ? level.short - level.ref : null;
+        level.lowSince = diff !== null && diff < -8 ? level.lowSince || now : 0;
+        level.highSince = diff !== null && diff > 5 ? level.highSince || now : 0;
+        level.diff = diff;
+        level.mixing = mixing;
+    }
+
+    function levelChecks() {
+        const out = [];
+        if (!level.mixing || level.ref === null || level.diff === null) return out;
+        const now = performance.now();
+        const { live, next } = autoMix ? { live: autoMix.out, next: autoMix.in } : liveAndNext();
+        const dB = `${level.diff > 0 ? '+' : ''}${level.diff.toFixed(0)} dB`;
+        const set = (id, value) => ({ targets: [{ id, value }] });
+        const lowOff = (d) => val(`deck-${d.key}-eq-low`) < -12 || val(`deck-${d.key}-filter`) > 30;
+        if (level.lowSince && now - level.lowSince > 4000) {
+            let fix = null;
+            // Nobody has the bass: that's the hole you hear
+            if (next.isPlaying && lowOff(live) && lowOff(next) && val(`deck-${next.key}-eq-low`) < -12) fix = set(`deck-${next.key}-eq-low`, 0);
+            else if (next.isPlaying && xfCurve(next) < 0.7) fix = set('crossfader', 0);
+            else if (next.isPlaying && val(`deck-${next.key}-volume`) < val(`deck-${live.key}-volume`) - 0.05) fix = set(`deck-${next.key}-volume`, val(`deck-${live.key}-volume`));
+            else if (!autoMix && next.isPlaying && val(`deck-${next.key}-eq-mid`) < -6) fix = set(`deck-${next.key}-eq-mid`, 0);
+            out.push({ level: 'warn', text: `Bajó el volumen de la mezcla (${dB})`, fix, mix: true,
+                why: fix ? `La pista se siente vacía: sube lo que está iluminado, de a poco. En una buena mezcla el volumen se mantiene parejo.`
+                    : `Puede ser un break del tema; si no, sube de a poco el tema que entra. En una buena mezcla el volumen se mantiene parejo.` });
+        } else if (level.highSince && now - level.highSince > 3000) {
+            const fix = val(`deck-${live.key}-eq-mid`) > -6 && val(`deck-${next.key}-eq-mid`) > -6 ? set(`deck-${live.key}-eq-mid`, -12) : null;
+            out.push({ level: 'warn', text: `Subió mucho el volumen (${dB})`, fix, mix: true,
+                why: fix ? 'Los dos temas suenan completos encima: baja el MID del que sale (las voces) y no subas nada sobre 0.'
+                    : 'Los dos temas juntos suman demasiado: baja las perillas del que sale (no subas nada sobre 0).' });
+        } else if (Math.abs(level.diff) < 3) {
+            out.push({ level: 'ok', text: 'Volumen parejo', why: 'La mezcla suena igual de fuerte que el tema solo: así se hace.', mix: true });
+        }
+        return out;
+    }
+
     let checksSig = '';
     let lastChecks = [];
     let checkLights = [];
@@ -491,10 +559,10 @@ const Profe = (() => {
     function renderChecks() {
         const box = $('profe-checks');
         if (!box) return;
-        const checks = enabled && audioCtx && !autoMix ? liveChecks() : [];
+        const checks = enabled && audioCtx ? (autoMix ? [] : liveChecks()).concat(levelChecks()) : [];
         lastChecks = checks;
-        // Light up what fixes each problem (amber), unless a mix plan is lighting things up
-        checkLights = autoMix ? [] : checks.filter(c => c.fix && c.level !== 'ok').flatMap(c =>
+        // Light up what fixes each problem (amber); during a mix plan only the volume fixes
+        checkLights = checks.filter(c => c.fix && c.level !== 'ok' && (!autoMix || c.mix)).flatMap(c =>
             (c.fix.light || []).concat((c.fix.targets || []).map(t => ({ ...t }))).map(t => ({ ...t, warn: true })));
         const ls = checkLights.map(t => t.id + (t.value ?? t.label)).join('|');
         if (ls !== lightsSig) { lightsSig = ls; applyHighlights(); }
@@ -523,7 +591,7 @@ const Profe = (() => {
             el.querySelector('span').textContent = c.text;
             if (c.fix) el.addEventListener('click', () => {
                 ensureAudio();
-                if (c.fix.targets) c.fix.targets.forEach(t => glideControl(t.id, t.value, 350));
+                if (c.fix.targets) c.fix.targets.forEach(t => glideControl(t.id, t.value, glideMsFor(t.id, t)));
                 if (c.fix.run) c.fix.run();
                 toast(`Arreglado: ${c.why}`, 'ok');
                 checksSig = '';
@@ -637,7 +705,7 @@ const Profe = (() => {
         const names = {
             'eq-low': 'LOW', 'eq-mid': 'MID', 'eq-high': 'HI', 'filter': 'FILTER', 'pitch': 'PITCH',
             'play-btn': (t.label || '').startsWith('PAUSA') ? 'PAUSA' : 'PLAY', 'cue-btn': 'CUE', 'fx-on': 'FX ON',
-            'fx-level': 'nivel del FX', 'sync-btn': 'SYNC', 'eq-reset': 'perillas a 0',
+            'fx-level': 'nivel del FX', 'sync-btn': 'SYNC', 'eq-reset': 'perillas a 0', 'volume': 'VOLUMEN',
         };
         if (names[part]) return `${names[part]} del ${D}`;
         if (part.startsWith('fxt-')) return `${FX_LABELS[part.slice(4)]} del ${D}`;
@@ -666,6 +734,8 @@ const Profe = (() => {
             const value = formatTarget(t).replace(' · clic', '').replace('clic', '');
             chip.className = `px-2 py-0.5 rounded-full border text-[11px] font-bold ${t.warn ? 'border-amber-500/70 text-amber-200 bg-amber-950/50' : 'border-emerald-500/70 text-emerald-200 bg-emerald-950/50'} hover:brightness-125`;
             chip.textContent = `${targetName(t)}${value && !/^(PLAY|PAUSA|FX ON)/.test(value) ? ' → ' + value : ''}`;
+            // Musical moves say how long they take (the knob turns by itself after the click)
+            if (t.glide >= 1 && autoMix && autoMix.started) chip.textContent += ` · en ${barsWord(t.glide)}`;
             chip.title = 'Clic aquí para hacerlo (o en el control que brilla)';
             chip.addEventListener('click', () => { ensureAudio(); applyTarget(t); });
             box.appendChild(chip);
@@ -692,6 +762,7 @@ const Profe = (() => {
             if (d.fx && d.fx.on && !fxOnSince[d.key]) fxOnSince[d.key] = performance.now();
             if (d.fx && !d.fx.on) fxOnSince[d.key] = null;
         });
+        tickLevel();
         render();
         renderChecks();
         renderLit();
@@ -725,6 +796,7 @@ const Profe = (() => {
 
     return {
         init, tick, tickTricks, render,
+        level: () => ({ diff: level.diff, ref: level.ref, short: level.short }), // debugging
         tips: () => collectTips().sort((x, y) => y.p - x.p).map(t => `${t.p} ${t.title}`), // debugging
         targets: () => targets.concat(enabled ? checkLights : []), clearTargets: () => { targets = []; },
         mode: () => (enabled ? mode : 'off'),

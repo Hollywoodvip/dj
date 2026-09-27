@@ -54,6 +54,18 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
   trans only in the build-up into a drop.
 - **Beginner UX:** one click on a highlighted control glides it to its target,
   Space applies the whole step; the layout must fit a laptop screen without zooming.
+  Glides are musical (`glideMsFor`): a move you can hear takes ≥ 1 bar, mix steps use
+  their `glide` in bars (crossfader to the centre over bars/4, filter sweep over several
+  bars); only silent prep moves are quick. Moves of one step form a `group` (one click =
+  the whole bass swap). A control that is gliding counts as done (the plan doesn't wait).
+- **Even volume:** crossfader curve `xfCurve` is −1.5 dB per side in the middle (equal
+  power dipped 3 dB mid-blend); prep matches the incoming channel fader to the outgoing
+  one; the bass swaps on the incoming drop when its intro has no bass (`bassAt`), so the
+  mix never has a hole; the profe meters the master (`Mixer.meter`) against the last
+  bars of the track alone and lights the fix when the mix drops > 8 dB or rises > 5 dB.
+- **Loops:** when the outgoing track runs out of music before the mix ends (or with no
+  next track), the profe lights LOOP 8 = `loopFromBar` (2 bars, starts on a bar, inside
+  `musicEnd`); AUTO does it by itself. FX level has safe presets (from `FX_LIMITS`) + wheel.
 - **Problems light up too:** every warning in "TU MEZCLA" lights (amber) the
   control that fixes it, with its target; green lights are the mix plan's steps.
   The most important tip always wins (similar-priority tips don't flip-flop).

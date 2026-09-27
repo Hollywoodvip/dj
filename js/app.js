@@ -104,8 +104,11 @@ function deckTemplate(k) {
             <div class="grid grid-cols-12 gap-1.5 items-center">
                 <div id="deck-${k}-fx-beats" class="col-span-6 grid grid-cols-5 gap-1">${beatButtons}</div>
                 <div class="col-span-3 flex flex-col">
-                    <span class="text-[9px] text-gray-500">LEVEL/DEPTH</span>
-                    <input id="deck-${k}-fx-level" type="range" min="0" max="1" step="0.01" value="0.6" class="w-full slim">
+                    <div class="flex items-center justify-between gap-0.5">
+                        <span class="text-[9px] text-gray-500">NIVEL</span>
+                        ${[0, 1, 2].map(i => `<button id="deck-${k}-fxl-${i}" class="fx-preset" title="Nivel seguro para este efecto">·</button>`).join('')}
+                    </div>
+                    <input id="deck-${k}-fx-level" type="range" min="0" max="1" step="0.01" value="0.6" class="w-full fx-level" title="Arrastra, usa la rueda o toca un número">
                     <div class="fx-safe-track" title="Verde = zona segura, rojo = arruina el tema"><div id="deck-${k}-fx-safe" style="width:70%"></div></div>
                 </div>
                 <button id="deck-${k}-fx-on" class="col-span-3 btn-dj btn-fx-on py-2 rounded font-black text-[11px] text-rose-300">FX ON</button>
@@ -193,11 +196,16 @@ function ensureAudio() {
     loadDemo(124, 1, decks.b, true);
 }
 
+// Mixing curve: in the middle each channel is at −1.5 dB (the equal-power curve dropped
+// them to −3 dB, and with the new track still EQ'd down the blend dipped in volume)
+function xfCurve(deck, x = +$('crossfader').value) {
+    const t = deck === decks.a ? x : -x; // -1 = fader on this deck's side, 1 = on the other side
+    return Math.sqrt(Math.max(0, Math.cos((t + 1) * 0.25 * Math.PI)));
+}
 function applyCrossfader(x) {
     if (!Mixer.xfA) return;
-    // Equal-power curve
-    Mixer.xfA.gain.setTargetAtTime(Math.cos((x + 1) * 0.25 * Math.PI), audioCtx.currentTime, 0.005);
-    Mixer.xfB.gain.setTargetAtTime(Math.sin((x + 1) * 0.25 * Math.PI), audioCtx.currentTime, 0.005);
+    Mixer.xfA.gain.setTargetAtTime(xfCurve(decks.a, x), audioCtx.currentTime, 0.005);
+    Mixer.xfB.gain.setTargetAtTime(xfCurve(decks.b, x), audioCtx.currentTime, 0.005);
 }
 
 function applyEq(deck, band, val) {
@@ -297,7 +305,8 @@ function setupKnob(container) {
     container.addEventListener('pointerdown', (e) => {
         ensureAudio();
         const lit = litTargetFor(container);
-        if (lit) { glideControl(lit.id, lit.value, glideMsFor(lit.id)); drag = null; setTimeout(flash, 360); return; }
+        if (lit) { applyTarget(lit); drag = null; setTimeout(flash, 360); return; }
+        delete glides[input.id]; // grabbing it by hand stops any glide
         container.setPointerCapture(e.pointerId);
         drag = { x: e.clientX, y: e.clientY, v: +input.value };
         flash();
@@ -601,6 +610,12 @@ function refreshDeckButtons(deck) {
     refreshFxUI(deck);
 }
 
+// Three safe levels for each effect: soft, medium, the most it can take without ruining the track
+const fxPresets = (type) => {
+    const max = typeof FX_LIMITS !== 'undefined' && FX_LIMITS[type] ? FX_LIMITS[type].max : 0.7;
+    return [0.35, 0.65, 1].map(f => Math.round(max * f * 100) / 100);
+};
+
 function refreshFxUI(deck) {
     const k = deck.key;
     const fx = deck.fx;
@@ -617,6 +632,12 @@ function refreshFxUI(deck) {
     if (hintEl.textContent !== hint) { hintEl.textContent = hint; hintEl.title = hint; }
     if (lim) {
         $(`deck-${k}-fx-safe`).style.width = `${lim.max * 100}%`;
+        fxPresets(type).forEach((v, i) => {
+            const b = $(`deck-${k}-fxl-${i}`);
+            b.textContent = Math.round(v * 100);
+            b.dataset.level = v;
+            b.classList.toggle('active', !!fx && Math.abs(fx.level - v) < 0.015);
+        });
         document.querySelectorAll(`#deck-${k}-fx-beats [data-fxbeats]`).forEach(b => b.classList.toggle('fx-rec', lim.beats.includes(+b.dataset.fxbeats)));
         const over = fx && fx.level > lim.max + 0.02;
         $(`deck-${k}-fx-status`).classList.toggle('text-amber-300', !!over);
@@ -1089,6 +1110,24 @@ function recommendedBars(live, next) {
 }
 
 // Build a transition plan. Pure: it doesn't touch the decks.
+// How much bass a track has between t0 and t1, compared with its usual bass (1 = normal)
+function bassAt(analysis, t0, t1) {
+    const w = analysis && analysis.wave && analysis.wave[0];
+    if (!w || !w.length) return 1;
+    const f = Analysis.FPS;
+    if (!analysis.usualLow) {
+        const sample = [];
+        for (let i = 0; i < w.length; i += 10) sample.push(w[i]);
+        sample.sort((x, y) => x - y);
+        analysis.usualLow = sample[Math.floor(sample.length * 0.6)] || 1e-6;
+    }
+    let sum = 0, n = 0;
+    for (let i = Math.max(0, Math.floor(t0 * f)); i < Math.min(w.length, Math.floor(t1 * f)); i++) { sum += w[i]; n++; }
+    return n ? sum / n / analysis.usualLow : 1;
+}
+
+const barsWord = (n) => (n === 1 ? '1 compás' : `${+n.toFixed(1)} compases`);
+
 function planTransition(live, next, now = false) {
     const la = live.analysis, na = next.analysis;
     const r = tempoRatio(next, live, MAX_MIX_PITCH);
@@ -1157,6 +1196,11 @@ function planTransition(live, next, now = false) {
     const set = (id, value, glide = 0) => ({ type: 'set', id, value, glide });
     const val = (id) => +$(id).value;
     const q = bars / 4;
+    // Bass swap halfway, unless the new track has no bass yet there (an intro with just drums):
+    // then the old track keeps the bass until the new one's drop and they swap right on it,
+    // so there is never a moment without bass (that's the "hole" that sounds like a volume drop)
+    const bassOnDrop = style !== 'echo' && dropAtEnd && bassAt(na, inStart + (bars / 2) * barIn, inStart + (bars - 0.5) * barIn) < 0.45;
+    const swapText = `LOW del ${LA} a −26 y LOW del ${LB} a 0 (al mismo tiempo, así el volumen no baja)`;
     const endFx = style === 'blend' && pace !== 'fast' ? { fx: 'reverb', beats: 2, level: 0.45 } : { fx: 'echo', beats: 0.5, level: style === 'echo' ? 0.7 : 0.55 };
 
     /* ---------- PREPARATION (right after loading the track, one thing at a time) ---------- */
@@ -1175,12 +1219,17 @@ function planTransition(live, next, now = false) {
             : `Pitch del ${LB} a 0% (los tempos están muy lejos para igualarlos sin que suene a ardilla)`,
             [set(`deck-${B}-pitch`, wantRate)]);
     }
-    const inEq = style === 'blend' ? { low: -26, mid: -10, high: -8 } : style === 'filter' ? { low: -26, mid: 0, high: 0 } : { low: 0, mid: 0, high: 0 };
+    // Same channel volume for both, so the new track doesn't come in louder or quieter
+    const volOut = val(`deck-${A}-volume`);
+    if (Math.abs(val(`deck-${B}-volume`) - volOut) > 0.05) {
+        prep(`Volumen del canal ${LB} igual al del ${LA} (${Math.round(volOut * 100)}%): así la mezcla no sube ni baja de volumen`, [set(`deck-${B}-volume`, volOut)]);
+    }
+    const inEq = style === 'blend' ? { low: -26, mid: -10, high: -8 } : style === 'filter' ? { low: -26, mid: -8, high: -4 } : { low: 0, mid: 0, high: 0 };
     const eqActs = ['low', 'mid', 'high'].filter(b => Math.abs(val(`deck-${B}-eq-${b}`) - inEq[b]) > 1).map(b => set(`deck-${B}-eq-${b}`, inEq[b]));
     if (Math.abs(val(`deck-${B}-filter`)) > 3) eqActs.push(set(`deck-${B}-filter`, 0));
     if (eqActs.length) {
         prep(style === 'echo' ? `Perillas del ${LB} en 0: entra con todo, en su drop`
-            : `Deja las perillas del ${LB} listas: LOW −26${style === 'blend' ? ', MID −10, HI −8' : ''}. Así entra suave y sin bajo`, eqActs);
+            : `Deja las perillas del ${LB} listas: LOW −26, MID ${inEq.mid}, HI ${inEq.high}. Así entra suave, sin bajo y sin subir el volumen`, eqActs);
     }
     const outEqActs = ['low', 'mid', 'high'].filter(b => Math.abs(val(`deck-${A}-eq-${b}`)) > 1).map(b => set(`deck-${A}-eq-${b}`, 0));
     if (Math.abs(val(`deck-${A}-filter`)) > 3) outEqActs.push(set(`deck-${A}-filter`, 0));
@@ -1193,20 +1242,37 @@ function planTransition(live, next, now = false) {
     const playText = next.isPlaying ? `El ${LB} ya está sonando: sigue desde el próximo compás`
         : `Dale PLAY al ${LB} (entra justo en el compás aunque lo aprietes un poco antes o después)`;
     if (style === 'blend') {
-        step(0, `${playText} y lleva el crossfader al centro de a poco`, [{ type: 'startIn' }, set('crossfader', 0, q)]);
+        // Glides are in bars: a click starts the move and the knob turns by itself at DJ speed
+        step(0, `${playText} y lleva el crossfader al centro (se mueve solo en ${barsWord(q)})`, [{ type: 'startIn' }, set('crossfader', 0, q)]);
         // The mids carry the vocals: two singers at once sounds messy, so swap them
-        step(q, `Cambio de voces: MID del ${LA} a −12, MID y HI del ${LB} a 0`,
+        step(q, `Cambio de voces: MID del ${LA} a −12, MID y HI del ${LB} a 0 (en 1 compás)`,
             [set(`deck-${A}-eq-mid`, -12, 1), set(`deck-${B}-eq-mid`, 0, 1), set(`deck-${B}-eq-high`, 0, 1)]);
-        step(bars / 2, `Cambio de bajos: LOW del ${LA} a −26 y LOW del ${LB} a 0`, [set(`deck-${A}-eq-low`, -26, 0.25), set(`deck-${B}-eq-low`, 0, 0.25)]);
-        step(3 * q, `Baja el HI del ${LA} a −12`, [set(`deck-${A}-eq-high`, -12, Math.max(1, q - 1))]);
+        // Bass swap on the 1: one comes out while the other goes in, the level stays even
+        if (!bassOnDrop) step(bars / 2, `Cambio de bajos: ${swapText}`, [set(`deck-${A}-eq-low`, -26, 0.5), set(`deck-${B}-eq-low`, 0, 0.5)]);
+        step(3 * q, `Baja el HI del ${LA} a −12 (de a poco)`, [set(`deck-${A}-eq-high`, -12, Math.max(1, q - 1))]);
         step(bars - (endFx.fx === 'reverb' ? 2 : 1), `Prende el ${FX_LABELS[endFx.fx]} del ${LA} (FX ON) para despedirlo`, [{ type: 'fx', deck: A, ...endFx }]);
-        step(bars, `Crossfader entero al ${LB}`, [set('crossfader', xIn, 0.5)]);
+        if (bassOnDrop) step(bars, `¡Llega el drop del ${LB}! Cambio de bajos justo en el 1 (${swapText}) y crossfader entero al ${LB}. Un clic hace todo`,
+            [set(`deck-${A}-eq-low`, -26, 0.25), set(`deck-${B}-eq-low`, 0, 0.25), set('crossfader', xIn, 1)]);
+        else step(bars, `Crossfader entero al ${LB} (en 1 compás)`, [set('crossfader', xIn, 1)]);
     } else if (style === 'filter') {
-        step(0, `${playText}, crossfader al centro y empieza a subir el FILTER del ${LA} (high-pass) de a poco`,
-            [{ type: 'startIn' }, set('crossfader', 0, q), set(`deck-${A}-filter`, 70, bars)]);
-        step(bars / 2, `Cambio de bajos: LOW del ${LA} a −26 y LOW del ${LB} a 0`, [set(`deck-${A}-eq-low`, -26, 0.25), set(`deck-${B}-eq-low`, 0, 0.25)]);
+        // The filter only starts after the bass swap: before that the old track carries the
+        // bass, so the mix never runs out of low end (that's what sounds like a volume drop)
+        step(0, `${playText} y lleva el crossfader al centro (se mueve solo en ${barsWord(q)})`,
+            [{ type: 'startIn' }, set('crossfader', 0, q)]);
+        if (!bassOnDrop) {
+            const sweep = Math.max(1, bars / 2 - 1);
+            step(bars / 2, `Cambio de bajos: LOW del ${LA} a −26; LOW, MID y HI del ${LB} a 0. Y sube el FILTER del ${LA} (high-pass): sube solo en ${barsWord(sweep)}`,
+                [set(`deck-${A}-eq-low`, -26, 0.5), set(`deck-${B}-eq-low`, 0, 0.5), set(`deck-${B}-eq-mid`, 0, 1), set(`deck-${B}-eq-high`, 0, 1), set(`deck-${A}-filter`, 70, sweep)]);
+        } else {
+            // The new track has no bass until its drop: the filter builds the tension into it
+            const from = Math.max(bars / 2, bars - 3);
+            step(from, `MID y HI del ${LB} a 0, y sube el FILTER del ${LA} (high-pass) hasta el drop: sube solo en ${barsWord(bars - 1 - from)}`,
+                [set(`deck-${B}-eq-mid`, 0, 1), set(`deck-${B}-eq-high`, 0, 1), set(`deck-${A}-filter`, 70, Math.max(1, bars - 1 - from))]);
+        }
         step(bars - 1, `Prende el ECHO del ${LA} (FX ON) para cerrar`, [{ type: 'fx', deck: A, ...endFx }]);
-        step(bars, `Crossfader entero al ${LB} (el eco se va apagando solo)`, [set('crossfader', xIn, 0.5)]);
+        if (bassOnDrop) step(bars, `¡Drop del ${LB}! LOW del ${LB} a 0, LOW del ${LA} a −26 y crossfader entero al ${LB} (el eco se apaga solo)`,
+            [set(`deck-${B}-eq-low`, 0, 0.25), set(`deck-${A}-eq-low`, -26, 0.25), set('crossfader', xIn, 1)]);
+        else step(bars, `Crossfader entero al ${LB} (el eco se va apagando solo)`, [set('crossfader', xIn, 1)]);
     } else {
         step(-1, `Un compás antes: prende el ECHO del ${LA} (FX ON)`, [{ type: 'fx', deck: A, ...endFx }]);
         step(0, `${playText} y pasa el crossfader entero al ${LB}: el eco del ${LA} sigue sonando solo`,
@@ -1218,7 +1284,7 @@ function planTransition(live, next, now = false) {
 
     return {
         style, styleLabel: MIX_STYLES[style], reason, bars, target, inStart, useDrop, dropAtEnd, pace,
-        dropBar: useDrop ? 0 : Math.round((na.introEnd - inStart) / barIn),
+        dropBar: useDrop ? 0 : Math.round((na.introEnd - inStart) / barIn), bassOnDrop,
         synced: !!r, rate: r ? r.rate : null, factor: r ? r.factor : 1, steps, xIn, xOut,
     };
 }
@@ -1321,10 +1387,12 @@ function mixBarPosition(m) {
 function fireStep(m, step) {
     step.fired = true;
     step.pending = [];
+    // Moves of the same step go together (a bass swap is both LOWs at once): one click does all
+    const group = [];
     step.actions.forEach(a => {
         if (a.type === 'set') {
             if (m.mode === 'auto') glideControl(a.id, a.value, a.glide * mixBarSeconds(m) * 1000);
-            else step.pending.push({ id: a.id, value: a.value });
+            else { const t = { id: a.id, value: a.value, glide: a.glide, group }; group.push(t); step.pending.push(t); }
         } else if (a.type === 'fxPrep') {
             const d = decks[a.deck];
             if (m.mode === 'auto') {
@@ -1366,16 +1434,57 @@ function fireStep(m, step) {
 
 function targetReached(t) {
     if (t.check) return t.check();
+    // Already on its way there (a slow, musical move you started with a click)
+    if (t.value !== undefined && glides[t.id] && Math.abs(glides[t.id].to - t.value) < 1e-6) return true;
     if (t.fx) return t.fx.on;
     const el = $(t.id);
     const tol = t.id.endsWith('-pitch') ? 0.0015 : (+el.max - +el.min) * 0.1;
     return Math.abs(+el.value - t.value) <= tol;
 }
 
+// A lit loop button does what the profe asked for (a loop that starts on the bar)
+function loopButton(deck, beats) {
+    const lit = currentTargets.find(t => t.id === `deck-${deck.key}-loop-${beats}` && t.run);
+    if (lit) lit.run(); else deck.loopBeats(beats);
+    refreshDeckButtons(deck);
+}
+
+// Music left in a track (in bars), up to where its beat ends (not the talking at the end)
+function musicLeftBars(deck) {
+    if (!deck.analysis) return Infinity;
+    const end = Math.min(deck.analysis.musicEnd || deck.duration, deck.duration);
+    return (end - deck.getCurrentTime()) / (4 * deck.beatSec);
+}
+// Loop of the last 2 bars of music, in time, to stretch the end of a track
+function stretchLoop(deck) {
+    deck.loopFromBar(8, deck.analysis ? deck.analysis.musicEnd || deck.duration : deck.duration);
+    refreshDeckButtons(deck);
+}
+
+// The old track runs out of music before the mix is over: stretch it with a loop
+function tickMixLoop(m) {
+    const { out, plan } = m;
+    if (m.loopTarget && targetReached(m.loopTarget)) m.loopTarget = null;
+    if (!out.isPlaying || out.loop.active || out.slip || !out.analysis) return;
+    // Bars of music the old track still has to play: until the crossfader reaches the new one
+    // (an echo out only needs to reach its cut, the echo covers the rest)
+    const last = plan.style === 'echo' ? 0.5 : plan.bars;
+    let need;
+    if (m.started) need = last - mixBarPosition(m);
+    else {
+        const beats = out.beatPosition() - (out.downbeat - out.firstBeat) / out.beatSec;
+        need = last + (1 - ((beats / 4) % 1 + 1) % 1); // it would start on the next bar
+    }
+    const left = musicLeftBars(out);
+    if (need <= 0.25 || left >= need - 0.5 || left < -8) return;
+    if (m.mode === 'auto') { stretchLoop(out); return; }
+    if (!m.loopTarget) m.loopTarget = { id: `deck-${out.key}-loop-8`, label: 'LOOP · clic', check: () => out.loop.active, run: () => stretchLoop(out) };
+}
+
 function refreshCoachTargets() {
     const m = autoMix;
     if (!m) { setCoachTargets([]); return; }
-    const targets = [];
+    const targets = m.loopTarget ? [m.loopTarget] : [];
     m.plan.steps.forEach(s => {
         s.pending = (s.pending || []).filter(t => !targetReached(t));
         targets.push(...s.pending);
@@ -1388,7 +1497,7 @@ function formatTarget(t) {
     if (t.fx) return 'ON';
     if (t.id === 'crossfader') return t.value === 0 ? 'CENTRO' : t.value < 0 ? 'A' : 'B';
     if (t.id.endsWith('-pitch')) { const pct = ((t.value - 1) * 100).toFixed(1); return `${pct >= 0 ? '+' : ''}${pct}%`; }
-    if (t.id.endsWith('-fx-level')) return `${Math.round(t.value * 100)}%`;
+    if (t.id.endsWith('-fx-level') || t.id.endsWith('-volume')) return `${Math.round(t.value * 100)}%`;
     if (t.id.endsWith('filter')) return t.value > 0 ? `HPF ${t.value}` : t.value < 0 ? `LPF ${-t.value}` : '0';
     return `${t.value > 0 ? '+' : ''}${t.value} dB`;
 }
@@ -1401,7 +1510,9 @@ function setCoachTargets(targets) {
 }
 // Lights up what the mix coach (guided mix) and the DJ PROFE want you to touch
 function applyHighlights() {
-    const all = mixTargets.concat(typeof Profe !== 'undefined' ? Profe.targets() : []);
+    // One light per control: the mix plan's step wins over a profe suggestion on the same control
+    const all = mixTargets.concat(typeof Profe !== 'undefined' ? Profe.targets() : [])
+        .filter((t, i, list) => list.findIndex(o => o.id === t.id) === i);
     coachEls.forEach(el => { el.classList.remove('coach-target', 'coach-warn'); delete el.dataset.target; delete el.dataset.targetValue; });
     coachEls = all.map(t => {
         const input = $(t.id);
@@ -1421,13 +1532,25 @@ function applyTarget(t) {
     if (targetReached(t)) return; // already done: never toggle it back
     if (t.run) { t.run(); return; }
     if (t.fx) { if (!t.fx.on) { t.fx.setOn(true); refreshFxUI(t.fx.deck); } return; }
-    if (t.value !== undefined) glideControl(t.id, t.value, glideMsFor(t.id));
+    if (t.value !== undefined) glideControl(t.id, t.value, glideMsFor(t.id, t));
+    if (t.group) t.group.forEach(o => { if (o !== t && !targetReached(o)) glideControl(o.id, o.value, glideMsFor(o.id, o)); });
 }
-// Pitch changes are audible: fix them slowly
-const glideMsFor = (id) => {
-    if (!id.endsWith('-pitch')) return 350;
-    const deck = decks[id.split('-')[1]];
-    return deck && deck.isPlaying ? 4000 : 400;
+// Is this control changing something you can hear right now?
+function controlAudible(id) {
+    if (id === 'crossfader') return deckList.filter(d => d.isPlaying).length === 2;
+    const deck = decks[(id.match(/^deck-([ab])-/) || [])[1]];
+    return !!(deck && deck.isPlaying && xfCurve(deck) > 0.3 && !id.includes('-fx'));
+}
+// How fast a click moves a control to its target. Anything you can hear moves like a DJ's
+// hand would (a bar or more, a filter rises over several bars); silent prep moves are quick
+const glideMsFor = (id, t) => {
+    const deck = decks[(id.match(/^deck-([ab])-/) || [])[1]];
+    if (id.endsWith('-pitch')) return deck && deck.isPlaying ? 4000 : 400;
+    if (!controlAudible(id)) return 350;
+    const m = autoMix;
+    if (t && t.glide >= 0.2 && m && m.started) return Math.max(900, t.glide * mixBarSeconds(m) * 1000);
+    const ref = deck && deck.isPlaying ? deck : deckList.find(d => d.isPlaying);
+    return ref && ref.beatSec ? clamp(4 * ref.beatSec / ref.playbackRate * 1000, 1200, 2500) : 1500;
 };
 function applyAllTargets() {
     ensureAudio();
@@ -1438,7 +1561,7 @@ function litTargetFor(el) {
     const host = el.closest('.coach-target');
     if (!host || host.dataset.targetValue === undefined) return null;
     const input = host.querySelector('input[type=range]') || el;
-    return { id: input.id, value: +host.dataset.targetValue };
+    return currentTargets.find(t => t.id === input.id && t.value !== undefined) || { id: input.id, value: +host.dataset.targetValue };
 }
 
 let lastMixDone = null;
@@ -1448,11 +1571,12 @@ function finishAutoMix(early = false) {
     const { out, in: inc, plan } = m;
     if (out.isPlaying && m.mode === 'auto') out.pause();
     if (out.fx.on) out.fx.setOn(false);
+    if (out.loop.active && !out.isPlaying) out.exitLoop(); // the stretch loop is done
     ['low', 'mid', 'high'].forEach(b => setControl(`deck-${out.key}-eq-${b}`, 0));
     setControl(`deck-${out.key}-filter`, 0);
-    setControl(`deck-${inc.key}-eq-low`, 0);
-    setControl(`deck-${inc.key}-eq-high`, 0);
-    setControl('crossfader', plan.xIn);
+    // The new track's knobs go back to 0 over a bar (a snap would jump the volume)
+    resetChannel(inc, clamp(4 * inc.beatSec / inc.playbackRate * 1000, 1200, 2500));
+    if (out.isPlaying) glideControl('crossfader', plan.xIn, 1500); else setControl('crossfader', plan.xIn);
     if (out.syncOn) out.syncOn = false;
     inc.syncOn = false;
     startPitchReturn(inc, 32);
@@ -1537,12 +1661,13 @@ function tickAutoMix() {
             m.skipped = true;
             plan.steps.forEach(s => { if (s.at < pauseStep.at) { s.fired = true; s.pending = []; } });
             m.pausedBars = (m.pausedBars || 0) - (pauseStep.at - mixBarPosition(m));
-            resetChannel(inc, 400); // the new track plays full (bass, mids, highs)
+            resetChannel(inc, 1500); // the new track plays full (bass, mids, highs), smoothly
             toast(`¡Te adelantaste! Ya suena el ${inc.id}: solo falta pausar el ${out.id}`, 'ok');
         }
     }
     // The old track stopped (you paused it or it ended): the mix is done
     if (m.started && plan.style !== 'echo' && !out.isPlaying) { finishAutoMix(true); return; }
+    tickMixLoop(m);
     const barPos = mixBarPosition(m);
     m.progress = clamp(barPos / plan.bars, 0, 1);
     let prepBlocked = false;
@@ -1875,8 +2000,7 @@ function runAction(m, phase, shift) {
         case 'brake': shift ? deck.spinback() : deck.startBrake(); break;
         case 'hot1': case 'hot2': case 'hot3': hotCue(deck, +action.slice(-1), shift); break;
         case 'loop1': case 'loop2': case 'loop4': case 'loop8':
-            deck.loopBeats(+action.slice(4));
-            refreshDeckButtons(deck);
+            loopButton(deck, +action.slice(4));
             break;
         case 'xfLeft': setControl('crossfader', shift ? -1 : clamp(+$('crossfader').value - 0.1, -1, 1)); break;
         case 'xfRight': setControl('crossfader', shift ? 1 : clamp(+$('crossfader').value + 0.1, -1, 1)); break;
@@ -2121,8 +2245,7 @@ function setupDeck(deck) {
     [1, 2, 3].forEach(n => $(`deck-${k}-hot${n}`).addEventListener('click', (e) => hotCue(deck, n, e.shiftKey)));
     [1, 2, 4, 8].forEach(b => $(`deck-${k}-loop-${b}`).addEventListener('click', () => {
         ensureAudio();
-        deck.loopBeats(b);
-        refreshDeckButtons(deck);
+        loopButton(deck, b);
     }));
 
     // Pitch
@@ -2173,6 +2296,12 @@ function setupDeck(deck) {
         deck.fx.setLevel(+e.target.value);
         refreshFxUI(deck);
     });
+    // Hard to drag a thin slider on a touchpad: wheel over it, or one click on a safe level
+    wheelSlider($(`deck-${k}-fx-level`), 200);
+    [0, 1, 2].forEach(i => $(`deck-${k}-fxl-${i}`).addEventListener('click', (e) => {
+        ensureAudio();
+        glideControl(`deck-${k}-fx-level`, +e.currentTarget.dataset.level, 250);
+    }));
     hold(`deck-${k}-fx-on`, () => { ensureAudio(); fxKey(deck, 'down'); }, () => { if (fxHold[k]) fxKey(deck, 'up'); });
 
     // Overview click = seek
@@ -2237,7 +2366,8 @@ function setupGlobal() {
     document.querySelectorAll('input[type=range]:not(.hidden)').forEach(input => {
         const go = (e) => {
             const lit = litTargetFor(input);
-            if (lit && lit.id === input.id) { e.preventDefault(); ensureAudio(); glideControl(input.id, lit.value, glideMsFor(input.id)); }
+            if (lit && lit.id === input.id) { e.preventDefault(); ensureAudio(); applyTarget(lit); }
+            else delete glides[input.id]; // grabbing it by hand stops any glide
         };
         input.addEventListener('mousedown', go);
         input.addEventListener('touchstart', go, { passive: false });
@@ -2383,7 +2513,7 @@ function tickRecorderTracklist() {
     const t = (performance.now() - Recorder.startedAt) / 1000;
     const x = +$('crossfader').value;
     deckList.forEach(d => {
-        const gain = d === decks.a ? Math.cos((x + 1) * 0.25 * Math.PI) : Math.sin((x + 1) * 0.25 * Math.PI);
+        const gain = xfCurve(d, x);
         if (!d.isPlaying || !d.track || gain < 0.3) return;
         const title = `${d.track.artist ? d.track.artist + ' - ' : ''}${d.track.title}`;
         if (!Recorder.tracks.some(r => r.title === title)) Recorder.tracks.push({ t, title });
