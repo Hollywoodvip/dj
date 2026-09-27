@@ -21,8 +21,23 @@ const Cue = (() => {
 
     const supported = () => typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype;
     const masterSupported = () => typeof AudioContext !== 'undefined' && 'setSinkId' in AudioContext.prototype;
+    // The real device behind a choice ('default' = whatever the Mac is using now: on a
+    // MacBook that becomes the headphone jack as soon as you plug headphones in)
+    const realDevice = (id) => {
+        const d = devices.find(x => x.deviceId === (id || 'default'));
+        if (!d) return null;
+        if (d.deviceId !== 'default' || !d.groupId) return d;
+        return devices.find(x => x.deviceId !== 'default' && x.deviceId !== 'communications' && x.groupId === d.groupId) || d;
+    };
+    // Speakers and headphones end up on the same device: nothing can be separated
+    function sameOutput() {
+        if (!cueDev) return false;
+        if (masterDev && masterDev.id === cueDev.id) return true;
+        const m = realDevice(masterDev && masterDev.id), c = realDevice(cueDev.id);
+        return !!(m && c && (m.deviceId === c.deviceId || (m.groupId && m.groupId === c.groupId)));
+    }
     // Headphones picked and different from the speakers
-    const ready = () => !!(nodes && cueDev && cueDev.id && (!masterDev || cueDev.id !== masterDev.id) && nodes.routed);
+    const ready = () => !!(nodes && cueDev && cueDev.id && !sameOutput() && nodes.routed);
 
     function build() {
         if (nodes || !audioCtx || !Mixer.limiter || !decks.a.filterNode) return;
@@ -49,7 +64,13 @@ const Cue = (() => {
     async function route() {
         if (!nodes) return;
         nodes.routed = false;
-        if (!cueDev || !supported() || (masterDev && cueDev.id === masterDev.id)) { nodes.el.pause(); render(); return; }
+        await listDevices();
+        if (!cueDev || !supported() || sameOutput()) {
+            nodes.el.pause();
+            render();
+            if (cueDev && sameOutput()) toast('Parlantes y audífonos son la misma salida: en ELEGIR pon tu parlante Bluetooth en "Parlantes"', 'warn');
+            return;
+        }
         try {
             await nodes.el.setSinkId(cueDev.id);
             await nodes.el.play();
@@ -97,11 +118,13 @@ const Cue = (() => {
             const b = $(`deck-${d.key}-pfl`);
             if (b) b.classList.toggle('active', pfl[d.key]);
         });
+        const warn = $('out-conflict');
+        if (warn) warn.classList.toggle('hidden', !sameOutput());
         const st = $('cue-status');
         if (!st) return;
         if (!supported()) st.textContent = 'Tu navegador no deja elegir la salida: usa Chrome';
         else if (!cueDev) st.textContent = 'Sin audífonos: toca ELEGIR';
-        else if (masterDev && cueDev.id === masterDev.id) st.textContent = 'Audífonos = parlantes: elige otro';
+        else if (sameOutput()) st.textContent = '⚠ Parlantes y audífonos son la misma salida';
         else st.textContent = `🎧 ${cueDev.label || 'audífonos'}${nodes && !nodes.routed ? ' (no conectado)' : ''}`;
         st.title = st.textContent;
     }
@@ -128,9 +151,10 @@ const Cue = (() => {
         await listDevices();
         const fill = (sel, current, withDefault) => {
             sel.innerHTML = '';
-            if (withDefault) sel.add(new Option('Salida del sistema (la que elegiste en el Mac)', ''));
+            const now = realDevice('default');
+            if (withDefault) sel.add(new Option(`Salida del sistema${now && now.label ? ` (ahora: ${now.label.replace(/^(Predeterminado|Default)\s*-\s*/i, '')})` : ''}`, ''));
             else sel.add(new Option('— sin audífonos —', ''));
-            devices.filter(d => d.deviceId !== 'default').forEach((d, i) => sel.add(new Option(d.label || `Salida ${i + 1}`, d.deviceId)));
+            devices.filter(d => d.deviceId !== 'default' && d.deviceId !== 'communications').forEach((d, i) => sel.add(new Option(d.label || `Salida ${i + 1}`, d.deviceId)));
             sel.value = current && devices.some(d => d.deviceId === current.id) ? current.id : '';
         };
         fill($('out-master'), masterDev, true);
@@ -138,6 +162,7 @@ const Cue = (() => {
         $('out-names').classList.toggle('hidden', labelsAllowed);
         $('out-names-note').classList.toggle('hidden', labelsAllowed);
         $('out-master').disabled = !masterSupported();
+        $('out-conflict').classList.toggle('hidden', !sameOutput());
         $('out-master-note').classList.toggle('hidden', masterSupported());
     }
 

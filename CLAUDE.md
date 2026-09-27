@@ -39,6 +39,9 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
   device through a MediaStream `<audio>` with its own `setSinkId`. The cue never plays
   until a headphone device different from the speakers is chosen (no leaks to the party).
   Guided prep adds "prende el CUE 🎧 del B" when headphones are set.
+  On a MacBook the internal speakers and the headphone jack are ONE output (plugging
+  headphones mutes the speakers and 'default' becomes the jack): `sameOutput()` resolves
+  'default' by groupId and refuses/warns when speakers and headphones are the same device.
 - `js/profe.js` — **DJ PROFE**: tips from the musical context, tricks timed to
   drops, live review chips ("TU MEZCLA"), modes CONSEJOS / GUIADO / AUTOMÁTICO.
 
