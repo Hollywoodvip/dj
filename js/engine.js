@@ -32,6 +32,7 @@ class Deck {
         this.slip = null;          // roll: where the track would be without the loop
         this.brake = null;
         this.keyNudge = 0;
+        this.autoNudge = null;     // { bend, until } from the beat lock
         this.jogBend = null;
         this.lastJogMove = 0;
         this.jogAngle = 0;
@@ -317,6 +318,10 @@ class Deck {
             bend = this.jogBend;
         } else if (this.keyNudge) {
             bend = 1 + 0.04 * this.keyNudge;
+        } else if (this.autoNudge) {
+            // BEAT LOCK: a tiny, short speed-up / slow-down that pulls the beats back together
+            if (nowMs < this.autoNudge.until) bend = this.autoNudge.bend;
+            else this.autoNudge = null;
         }
         if (bend !== this.bend) {
             this.bend = bend;

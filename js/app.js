@@ -182,6 +182,7 @@ function mixerTemplate() {
                 <input id="crossfader" type="range" min="-1" max="1" step="0.01" value="0" class="w-full" title="← → en el teclado · doble clic = centro">
                 <div id="xf-plan" class="xf-plan hidden" title="Dónde debería estar el crossfader ahora según el plan de la mezcla"></div>
             </div>
+            <div id="beatlock" class="text-[9px] font-bold mt-0.5 h-3 text-gray-600" title="BEAT LOCK: mientras suenan los dos temas sincronizados, compara dónde caen los bombos de verdad y corrige el desfase solo (como el sync de un CDJ)"></div>
         </div>
         <div class="w-full bg-black/40 p-2 rounded border border-gray-800">
             <div class="flex justify-between items-center mb-1.5">
@@ -976,6 +977,114 @@ function alignPhase(deck, master) {
     if (delta < -0.5) delta += 1;
     if (Math.abs(delta) < 0.01) return;
     deck.seek(deck.getCurrentTime() + delta * deck.beatSec);
+}
+
+/* ---------- BEAT LOCK: keep the kicks together while both tracks sound ----------
+   The grids line the beats up when a track starts, but a BPM that is off by 0.1 or a grid
+   a few ms early makes the kicks slide apart during a long mix (the "galloping" that makes
+   a mix sound amateur). Every second, while two synced tracks sound together, it looks at
+   where the kicks REALLY are (low-band onsets of the analysis near each grid beat) and pulls
+   the incoming / synced deck back with a short ±1% nudge, like a CDJ's beat sync. */
+const BEATLOCK_TOL = 0.012; // s: under this nobody hears it
+function kickOffset(deck, pos) {
+    // Median distance (track seconds) between the grid beats and the real kicks, last 8 beats
+    const a = deck.analysis;
+    if (!a || !a.wave) return 0;
+    const low = a.wave[0], F = Analysis.FPS, b = a.beatSec;
+    const k1 = Math.floor((pos - a.firstBeat) / b);
+    const offs = [];
+    for (let k = k1 - 7; k <= k1; k++) {
+        const g = a.firstBeat + k * b;
+        if (g < 0) continue;
+        let best = 0, at = null;
+        // Look up to 0.4 beat away: a grid fitted over a track with a slightly wrong BPM is
+        // right in the middle and up to half a beat off at the ends
+        for (let f = Math.floor((g - 0.4 * b) * F); f <= Math.ceil((g + 0.4 * b) * F); f++) {
+            if (f < 1 || f >= low.length) continue;
+            // (closer to the grid wins: an offbeat bassline half a beat away never counts)
+            const rise = (low[f] - low[f - 1]) * (1 - Math.abs(f / F - g) / (0.5 * b));
+            if (rise > best) { best = rise; at = f / F; }
+        }
+        if (at !== null && best > 0.04) offs.push(at - g);
+    }
+    if (offs.length < 4) return 0;
+    offs.sort((x, y) => x - y);
+    return offs[offs.length >> 1];
+}
+// How many beats `deck` is behind `master` (by the real kicks), in −0.5 … 0.5
+function beatError(deck, master) {
+    const factor = deck.syncFactor || 1;
+    const mp = master.getCurrentTime(), dp = deck.getCurrentTime();
+    const mb = master.beatPosition(mp - kickOffset(master, mp));
+    const db = deck.beatPosition(dp - kickOffset(deck, dp));
+    const masterPhase = factor === 2 ? mb / 2 : factor === 0.5 ? mb * 2 : mb;
+    let delta = (masterPhase - db) % 1;
+    if (delta > 0.5) delta -= 1;
+    if (delta < -0.5) delta += 1;
+    return delta;
+}
+function renderBeatLock() {
+    const el = $('beatlock');
+    if (!el) return;
+    const d = beatLock.deck;
+    const ms = Math.round(beatLock.err * 1000);
+    const fixing = d && (d.autoNudge || Math.abs(ms) >= BEATLOCK_TOL * 1000);
+    const text = !d ? '' : fixing ? `🔧 CUADRANDO BEATS ${ms > 0 ? '+' : ''}${ms} ms` : `🔒 BEATS CUADRADOS · ${Math.abs(ms)} ms`;
+    if (el.textContent !== text) {
+        el.textContent = text;
+        el.className = `text-[9px] font-bold mt-0.5 h-3 ${fixing ? 'text-amber-400' : 'text-emerald-400'}`;
+    }
+}
+let lastBeatLock = 0;
+const beatLock = { deck: null, err: 0, fixes: 0, at: 0 };
+function tickBeatLock(nowMs) {
+    if (nowMs - lastBeatLock < 1000) return;
+    lastBeatLock = nowMs;
+    try { beatLockStep(nowMs); } finally { renderBeatLock(); }
+}
+function beatLockStep(nowMs) {
+    let deck = null;
+    if (autoMix && autoMix.started && autoMix.plan.synced) deck = autoMix.in;
+    else deck = deckList.find(d => d.syncOn);
+    const master = deck && otherDeck(deck);
+    beatLock.deck = null;
+    if (!deck || !master || !deck.isPlaying || !master.isPlaying || !deck.analysis || !master.analysis) return;
+    const busy = (d) => (d.loop && d.loop.active) || d.slip || d.brake || d.keyNudge || nowMs - (d.lastJogMove || 0) < 500;
+    if (busy(deck) || busy(master)) return;
+    // Only when the tempos really match (otherwise it's not a beatmatched mix)
+    const ratio = (deck.effectiveBpm * (deck.syncFactor || 1)) / master.effectiveBpm;
+    if (Math.abs(ratio - 1) > 0.012) return; // (the lock itself may trim the pitch a few ‰)
+    const delta = beatError(deck, master);
+    const errSec = delta * deck.beatSec / deck.playbackRate;
+    beatLock.deck = deck;
+    beatLock.err = errSec;
+    if (Math.abs(errSec) < BEATLOCK_TOL || deck.autoNudge) { beatLock.big = 0; return; }
+    // A big error has to show up 3 times in a row before it moves anything (a breakdown with
+    // no kick can fool one reading)
+    if (Math.abs(delta) > 0.2) {
+        beatLock.big = beatLock.bigDir === Math.sign(delta) ? (beatLock.big || 0) + 1 : 1;
+        beatLock.bigDir = Math.sign(delta);
+        if (beatLock.big < 3) return;
+    }
+    beatLock.big = 0;
+    // Catch up (or wait) delta beats at ±1% speed (±2% when far off): 20 ms takes ~2 s,
+    // nobody hears the pitch move
+    const dir = Math.sign(delta);
+    const trackSec = Math.abs(delta) * deck.beatSec;
+    const speed = Math.abs(errSec) > 0.05 ? 0.02 : 0.01;
+    const ms = Math.min(4000, trackSec / (speed * deck.pitch) * 1000);
+    deck.autoNudge = { bend: 1 + speed * dir, until: nowMs + ms };
+    // The same way twice in a row = the tempo itself is a hair off (BPM detection): fix the pitch
+    const prev = beatLock.lastFix;
+    if (prev && prev.deck === deck && prev.dir === dir && nowMs - prev.until > 3000 && nowMs - prev.until < 25000) {
+        // (half of the measured drift: never overshoots, the next fixes finish the job)
+        const drift = clamp(0.5 * dir * trackSec / ((nowMs - prev.until) / 1000), -0.003, 0.003);
+        deck.setPitch(deck.pitch * (1 + drift));
+        setPitchUI(deck);
+    }
+    beatLock.lastFix = { deck, dir, at: nowMs, until: nowMs + ms };
+    beatLock.fixes++;
+    beatLock.at = nowMs;
 }
 
 function toggleSync(deck) {
@@ -3213,6 +3322,7 @@ function frame(nowMs) {
     if (audioCtx) {
         tickGlides(nowMs);
         tickPitchReturn(nowMs);
+        tickBeatLock(nowMs);
         deckList.forEach(d => d.tick(nowMs));
         tickAutoMix();
         tickAfterMixTargets();

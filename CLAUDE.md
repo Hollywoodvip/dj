@@ -181,6 +181,14 @@ merges them into `historial/` (gitignored) and publishes an orphan-style branch
   the phrase line counts down to the next mark, and `#xf-plan` shows where the plan
   wants the crossfader now (`planCrossfader`).
 - **BPM sanity:** only 60–200 BPM; ×2/½ can't go outside it, saved tracks out of range are fixed on load.
+- **BEAT LOCK** (`tickBeatLock` in app.js): while two synced tracks sound (a started mix with
+  `plan.synced`, or SYNC on), every second it compares where the kicks REALLY are (`kickOffset`:
+  low-band onsets near each grid beat, weighted toward the grid so an offbeat bass never counts)
+  and pulls the incoming/synced deck back with a short ±1–2% `deck.autoNudge`; the same direction
+  twice = the BPM is a hair off → trims the pitch by half the measured drift (≤ 0.3%). Big errors
+  (> 0.2 beat) must be read 3 times in a row. Indicator `#beatlock` under the crossfader. Test: a
+  track really at 128.4 with a grid claiming 128 drifted to 200+ ms; with the lock it stays ~10 ms.
+- **Profe noise:** no glossary tips while something plays, no phrase-end text tip (it's an IDEA light).
 - **Beat FX are post-crossfader** (like a DJM): echo/reverb trails survive a cut.
 - **Guided mode waits for the user:** the plan's clock stops while something is
   lit up (only the incoming track's start is automatic, it must be on the beat).

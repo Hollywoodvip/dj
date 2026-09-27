@@ -412,12 +412,7 @@ const Profe = (() => {
                 actions: trickActions(live, ['reverb_space'], ctx) });
         }
 
-        if (ctx.section === 'main' && ctx.phraseLeft <= 1.5 && ctx.phraseLeft > 0.3 && !live.trick && !live.fx.on) {
-            add({ id: `phrase-${Math.round(ctx.phraseEnd)}`, p: 50, icon: 'fa-wave-square', title: 'Termina una frase',
-                text: 'Cada 8 compases la música cambia algo (frase). Un ECHO de 1 beat justo al final de la frase suena muy profesional.',
-                when: () => `fin de frase en ${barsText(context(live).phraseLeft)}`,
-                actions: trickActions(live, ['echo_phrase'], ctx) });
-        }
+        // (phrase-end ECHO is now a violet IDEA light, not a text tip every 8 bars)
 
         const sectionText = {
             intro: 'Estás en la INTRO: la parte más vacía del tema. Es la que se mezcla encima del tema anterior.',
@@ -428,8 +423,9 @@ const Profe = (() => {
         add({ id: `section-${ctx.section}`, p: 30, icon: 'fa-location-dot', title: `Sección: ${ctx.section.toUpperCase()}`, text: sectionText[ctx.section],
             when: () => { const c = context(live); return c.barsToOut > 0 ? `salida en ${barsText(c.barsToOut)}` : ''; } });
 
+        // Glossary only while nothing plays (in the middle of a set it read like the profe was lost)
         const [term, def] = GLOSSARY[tipIndex % GLOSSARY.length];
-        add({ id: `learn-${term}`, p: 10, icon: 'fa-book', title: `¿Qué es ${term}?`, text: def });
+        if (!deckList.some(d => d.isPlaying)) add({ id: `learn-${term}`, p: 10, icon: 'fa-book', title: `¿Qué es ${term}?`, text: def });
         return tips;
     }
 
