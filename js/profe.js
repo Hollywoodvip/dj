@@ -267,6 +267,21 @@ const Profe = (() => {
             return tips;
         }
 
+        // Something sounds wrong right now: say what to touch (it's lit up in amber)
+        const bad = !autoMix && lastChecks.find(c => c.level === 'bad' && c.fix);
+        if (bad) add({ id: `fix-${bad.text}`, p: 93, icon: 'fa-screwdriver-wrench', title: `Arregla esto: ${bad.text}`,
+            text: `${bad.why} Lo que tienes que tocar está iluminado en amarillo: haz clic ahí (o Espacio).` });
+
+        // The other deck playing underneath (no headphones: it leaks out of the speakers)
+        if (!autoMix && next.isPlaying && next.analysis && xfGain(next) <= 0.3 && live.isPlaying) {
+            add({ id: `underneath-${next.key}`, p: 84, icon: 'fa-headphones', title: `El ${next.id} está sonando por debajo`,
+                text: `Sin audífonos se alcanza a escuchar por los parlantes y ensucia el ${live.id}. Déjalo en pausa, listo en su punto de entrada, hasta que toque mezclar.`,
+                actions: [
+                    { label: `Pausar ${next.id} y dejarlo listo`, icon: 'fa-crosshairs', kind: 'auto', run: () => { next.pause(); prepareNext(); } },
+                    { label: 'Mezclarlo ahora (GUIADO)', icon: 'fa-graduation-cap', kind: 'show', run: () => startAutoMix(true, 'guide') },
+                ] });
+        }
+
         // Clipping
         if (deckList.some(d => d.vuLevel > 0.985)) {
             add({ id: 'clip', p: 95, icon: 'fa-volume-high', title: 'Suena saturado',
@@ -369,7 +384,7 @@ const Profe = (() => {
         const x = +$('crossfader').value;
         return deck === decks.a ? Math.cos((x + 1) * 0.25 * Math.PI) : Math.sin((x + 1) * 0.25 * Math.PI);
     }
-    const audible = (d) => d.isPlaying && d.analysis && xfGain(d) > 0.15 && +$(`deck-${d.key}-volume`).value > 0.05;
+    const audible = (d) => d.isPlaying && d.analysis && xfGain(d) > 0.3 && +$(`deck-${d.key}-volume`).value > 0.05;
     const val = (id) => +$(id).value;
 
     function liveChecks() {
@@ -393,11 +408,20 @@ const Profe = (() => {
                 const lim = FX_LIMITS[d.fx.type];
                 const name = FX_LABELS[d.fx.type];
                 if (d.fx.level > lim.max + 0.02) add('warn', `${name} ${D} muy fuerte (${Math.round(d.fx.level * 100)}%)`, `Zona segura: ${lim.tip}.`, set(`deck-${k}-fx-level`, lim.max));
-                else if (!lim.beats.includes(d.fx.beats)) add('warn', `${name} ${D} en ${beatLabel(d.fx.beats)}`, `Para ${name} lo que suena bien es ${lim.beats.map(beatLabel).join(' o ')}.`, { run: () => { d.fx.setBeats(lim.beats[lim.beats.length - 1]); refreshFxUI(d); } });
+                else if (!lim.beats.includes(d.fx.beats)) {
+                    const best = lim.beats[lim.beats.length - 1];
+                    const run = () => { d.fx.setBeats(best); refreshFxUI(d); };
+                    add('warn', `${name} ${D} en ${beatLabel(d.fx.beats)}`, `Para ${name} lo que suena bien es ${lim.beats.map(beatLabel).join(' o ')}.`,
+                        { run, light: [{ id: `deck-${k}-fxb-${String(best).replace('.', '_')}`, label: 'clic', run }] });
+                }
                 else add('ok', `${name} ${D} en zona segura`, lim.tip);
             }
             // Loop left running
-            if (since.loop[k] && bars(d, now - since.loop[k]) > 8) add('warn', `Loop del ${D} hace ${Math.round(bars(d, now - since.loop[k]))} comp.`, 'Un loop sirve para alargar una parte unos compases; si lo dejas mucho la gente siente que el tema se pegó.', { run: () => { d.exitLoop(); refreshDeckButtons(d); } });
+            if (since.loop[k] && bars(d, now - since.loop[k]) > 8) {
+                const run = () => { d.exitLoop(); refreshDeckButtons(d); };
+                add('warn', `Loop del ${D} hace ${Math.round(bars(d, now - since.loop[k]))} comp.`, 'Un loop sirve para alargar una parte unos compases; si lo dejas mucho la gente siente que el tema se pegó.',
+                    { run, light: [{ id: `deck-${k}-loop-${d.loop.beats}`, label: 'SOLTAR · clic', run }] });
+            }
             // Filter parked
             if (since.filter[k] && !autoMix && !d.trick && bars(d, now - since.filter[k]) > 8) add('warn', `FILTER del ${D} puesto hace rato`, 'El filtro es para una subida o una salida, no para dejarlo: el tema suena apagado o flaco.', set(`deck-${k}-filter`, 0));
             // EQ boosts
@@ -405,11 +429,17 @@ const Profe = (() => {
                 if (val(`deck-${k}-eq-${b}`) > 2.5) add('warn', `${b.toUpperCase()} del ${D} sobre 0`, 'Subir el EQ sobre 0 satura. Los DJs casi nunca suben: bajan lo que sobra.', set(`deck-${k}-eq-${b}`, 0));
             });
             // Pitch too far
-            if (Math.abs(d.pitch - 1) > 0.06 && !d.pitchReturn) add('warn', `Pitch del ${D} en ${((d.pitch - 1) * 100).toFixed(1)}%`, 'Más de ±6% cambia notoriamente la voz (ardilla o monstruo). Lo devuelvo a 0 de a poco para que nadie lo note.', { run: () => startPitchReturn(d, 8) });
+            if (Math.abs(d.pitch - 1) > 0.06 && !d.pitchReturn) {
+                const run = () => startPitchReturn(d, 8);
+                add('warn', `Pitch del ${D} en ${((d.pitch - 1) * 100).toFixed(1)}%`, 'Más de ±6% cambia notoriamente la voz (ardilla o monstruo). Lo devuelvo a 0 de a poco para que nadie lo note.',
+                    { run, light: [{ id: `deck-${k}-pitch`, label: '→ 0% · Espacio', run }] });
+            }
             else if (d.pitchReturn) add('ok', `Pitch del ${D} volviendo a 0`, 'Después de mezclar, el tempo vuelve de a poco a la velocidad original del tema.');
             // Only playing deck sounding dull
             if (on.length === 1 && !autoMix && (val(`deck-${k}-eq-mid`) < -12 || val(`deck-${k}-eq-high`) < -12 || val(`deck-${k}-eq-low`) < -12)) {
-                add('warn', `EQ del ${D} muy cortado`, 'Es el único tema sonando: con tanto corte se escucha apagado. Vuelve las perillas a 0.', { run: () => resetChannel(d) });
+                const run = () => resetChannel(d);
+                add('warn', `EQ del ${D} muy cortado`, 'Es el único tema sonando: con tanto corte se escucha apagado. Vuelve las perillas a 0.',
+                    { run, light: [{ id: `deck-${k}-eq-reset`, label: 'todo a 0 · clic', run }] });
             }
         });
 
@@ -427,9 +457,18 @@ const Profe = (() => {
                 let phase = (a.beatPosition() - b.beatPosition()) % 1;
                 if (phase < 0) phase += 1;
                 const off = Math.min(phase, 1 - phase);
-                if (diff > 0.3 || off > 0.12) add('bad', 'Beats descuadrados', 'Los golpes de los dos temas no caen juntos (suena a "galope"). Presiona SYNC en el que entra.', { run: () => { const n = liveAndNext().next; if (!n.syncOn) toggleSync(n); else alignPhase(n, otherDeck(n)); } });
+                const n = liveAndNext().next;
+                const run = () => { if (!n.syncOn) toggleSync(n); else alignPhase(n, otherDeck(n)); };
+                if (diff > 0.3 || off > 0.12) add('bad', 'Beats descuadrados', 'Los golpes de los dos temas no caen juntos (suena a "galope"). Presiona SYNC en el que entra.',
+                    { run, light: [{ id: `deck-${n.key}-sync-btn`, label: 'SYNC · clic', run }] });
                 else add('ok', 'Beats cuadrados', 'Los golpes de los dos temas caen juntos.');
             }
+        }
+
+        if (on.length === 2 && !autoMix && !tempoRatio(on[1], on[0])) {
+            const { live } = liveAndNext();
+            add('bad', 'Dos tempos muy distintos a la vez', `${decks.a.effectiveBpm.toFixed(0)} y ${decks.b.effectiveBpm.toFixed(0)} BPM no se pueden mezclar encima. Deja sonando solo uno (crossfader a su lado).`,
+                set('crossfader', live === decks.a ? -1 : 1));
         }
 
         // Crossfader pointing at a deck that isn't playing
@@ -440,10 +479,19 @@ const Profe = (() => {
     }
 
     let checksSig = '';
+    let lastChecks = [];
+    let checkLights = [];
+    let lightsSig = '';
     function renderChecks() {
         const box = $('profe-checks');
         if (!box) return;
         const checks = enabled && audioCtx ? liveChecks() : [];
+        lastChecks = checks;
+        // Light up what fixes each problem (amber), unless a mix plan is lighting things up
+        checkLights = autoMix ? [] : checks.filter(c => c.fix && c.level !== 'ok').flatMap(c =>
+            (c.fix.light || []).concat((c.fix.targets || []).map(t => ({ ...t }))).map(t => ({ ...t, warn: true })));
+        const ls = checkLights.map(t => t.id + (t.value ?? t.label)).join('|');
+        if (ls !== lightsSig) { lightsSig = ls; applyHighlights(); }
         const sig = checks.map(c => c.level + c.text).join('|');
         if (sig === checksSig) return;
         checksSig = sig;
@@ -496,7 +544,8 @@ const Profe = (() => {
         // Keep the current tip a few seconds unless something more important shows up
         const keep = current && tips.find(t => t.id === current.id);
         // (urgent tips, like the guided mix steps, always show right away)
-        if (keep && tip.id !== current.id && tip.p < 95 && tip.p < current.p + 25 && performance.now() - shownAt < 9000) tip = keep;
+        // Only similar-priority tips wait; anything clearly more important shows right away
+        if (keep && tip.id !== current.id && tip.p < current.p + 5 && performance.now() - shownAt < 9000) tip = keep;
         if (!tip) return;
         const changed = force || !current || tip.id !== current.id;
         current = tip;
@@ -607,7 +656,8 @@ const Profe = (() => {
 
     return {
         init, tick, tickTricks, render,
-        targets: () => targets, clearTargets: () => { targets = []; },
+        tips: () => collectTips().sort((x, y) => y.p - x.p).map(t => `${t.p} ${t.title}`), // debugging
+        targets: () => targets.concat(enabled ? checkLights : []), clearTargets: () => { targets = []; },
         mode: () => (enabled ? mode : 'off'),
         // A mix you cancelled is not re-armed for the same pair of tracks
         onCancel: () => { if (armedKey) refused.add(armedKey); armedKey = null; },

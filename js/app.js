@@ -37,7 +37,7 @@ function deckTemplate(k) {
             </div>
         </div>`;
     const fxButtons = FX_TYPES.map(t => `<button data-fx="${t}" class="btn-dj btn-fx py-1 rounded font-bold text-[9px] text-gray-300">${FX_LABELS[t]}</button>`).join('');
-    const beatButtons = FX_BEATS.map(b => `<button data-fxbeats="${b}" class="btn-dj btn-fx py-1 rounded font-bold text-[10px] text-gray-300">${beatLabel(b)}</button>`).join('');
+    const beatButtons = FX_BEATS.map(b => `<button id="deck-${k}-fxb-${String(b).replace('.', '_')}" data-fxbeats="${b}" class="btn-dj btn-fx py-1 rounded font-bold text-[10px] text-gray-300">${beatLabel(b)}</button>`).join('');
 
     return `
         <div class="bg-black/70 p-2.5 rounded border border-${c}-900/40">
@@ -297,7 +297,7 @@ function setupKnob(container) {
     container.addEventListener('pointerdown', (e) => {
         ensureAudio();
         const lit = litTargetFor(container);
-        if (lit) { glideControl(lit.id, lit.value, 350); drag = null; setTimeout(flash, 360); return; }
+        if (lit) { glideControl(lit.id, lit.value, glideMsFor(lit.id)); drag = null; setTimeout(flash, 360); return; }
         container.setPointerCapture(e.pointerId);
         drag = { x: e.clientX, y: e.clientY, v: +input.value };
         flash();
@@ -1255,12 +1255,13 @@ function setCoachTargets(targets) {
 // Lights up what the mix coach (guided mix) and the DJ PROFE want you to touch
 function applyHighlights() {
     const all = mixTargets.concat(typeof Profe !== 'undefined' ? Profe.targets() : []);
-    coachEls.forEach(el => { el.classList.remove('coach-target'); delete el.dataset.target; delete el.dataset.targetValue; });
+    coachEls.forEach(el => { el.classList.remove('coach-target', 'coach-warn'); delete el.dataset.target; delete el.dataset.targetValue; });
     coachEls = all.map(t => {
         const input = $(t.id);
         const el = input.closest('.knob-container') || (input.tagName === 'INPUT' ? input.parentElement : input);
         el.classList.add('coach-target');
-        el.dataset.target = formatTarget(t) + (t.value !== undefined ? ' · clic' : '');
+        el.classList.toggle('coach-warn', !!t.warn);
+        el.dataset.target = formatTarget(t) + (t.value !== undefined && !t.label ? ' · clic' : '');
         if (t.value !== undefined) el.dataset.targetValue = t.value;
         return el;
     });
@@ -1272,8 +1273,10 @@ let currentTargets = [];
 function applyTarget(t) {
     if (t.run) { t.run(); return; }
     if (t.fx) { if (!t.fx.on) { t.fx.setOn(true); refreshFxUI(t.fx.deck); } return; }
-    if (t.value !== undefined) glideControl(t.id, t.value, 350);
+    if (t.value !== undefined) glideControl(t.id, t.value, glideMsFor(t.id));
 }
+// Pitch changes are audible: fix them slowly
+const glideMsFor = (id) => (id.endsWith('-pitch') ? 4000 : 350);
 function applyAllTargets() {
     ensureAudio();
     if (!currentTargets.length) { toast('No hay nada que mover ahora mismo', 'info'); return; }

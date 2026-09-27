@@ -50,6 +50,9 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
   trans only in the build-up into a drop.
 - **Beginner UX:** one click on a highlighted control glides it to its target,
   Space applies the whole step; the layout must fit a laptop screen without zooming.
+- **Problems light up too:** every warning in "TU MEZCLA" lights (amber) the
+  control that fixes it, with its target; green lights are the mix plan's steps.
+  The most important tip always wins (similar-priority tips don't flip-flop).
 - **Guided mode waits for the user:** the plan's clock stops while something is
   lit up (only the incoming track's start is automatic, it must be on the beat).
   Never stop a deck by surprise in guided mode: the user pauses the old deck

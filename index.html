@@ -137,6 +137,10 @@
             white-space: nowrap; font-size: 9px; font-weight: 800; color: #052e16; background: #34d399;
             padding: 0 4px; border-radius: 3px; line-height: 13px; pointer-events: none; z-index: 5;
         }
+        /* Problems to fix (DJ PROFE review): amber instead of green */
+        .coach-target.coach-warn { animation: coachWarn 2s ease-in-out infinite; }
+        @keyframes coachWarn { 0%, 100% { box-shadow: 0 0 0 3px rgba(245,158,11,0.95); } 50% { box-shadow: 0 0 0 5px rgba(245,158,11,0.45); } }
+        .coach-target.coach-warn[data-target]::after { background: #f59e0b; color: #1c1004; }
         .knob-value {
             position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 2px;
             font-size: 9px; font-weight: 700; white-space: nowrap; padding: 0 4px; border-radius: 3px;
