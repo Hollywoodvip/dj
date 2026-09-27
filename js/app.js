@@ -515,6 +515,41 @@ async function loadDemo(bpm, variant, deck, onlyIfEmpty = false) {
     await loadEntryToDeck(entry, deck, null, { onlyIfEmpty });
 }
 
+// Played now: remembered (saved), so the library says "sonó hace 12 min" and doesn't suggest it
+function markPlayed(track) {
+    if (!track) return;
+    track.played = true;
+    if (track.demo) return;
+    if (!track.lastPlayedAt || Date.now() - track.lastPlayedAt > 60000) { track.lastPlayedAt = Date.now(); saveEntry(track); }
+}
+function agoText(t) {
+    const m = Math.round((Date.now() - t) / 60000);
+    if (m < 1) return 'recién';
+    if (m < 60) return `hace ${m} min`;
+    const h = Math.round(m / 60);
+    if (h < 24) return `hace ${h} h`;
+    const d = Math.round(h / 24);
+    return d === 1 ? 'ayer' : `hace ${d} días`;
+}
+const playedRecently = (e) => e.played || (e.lastPlayedAt && Date.now() - e.lastPlayedAt < 3 * 3600 * 1000);
+
+// Suggestions for what's playing: tempo + key (stars), same genre, not played lately
+function suggestScore(entry, live) {
+    if (!live || !live.track || live.track === entry || deckList.some(d => d.track === entry)) return null;
+    const m = trackMatch(entry, live);
+    if (!m) return null;
+    let score = m.stars * 2 - m.tempoDiff * 10;
+    const sameGenre = !live.track.demo && trackGenre(entry) === trackGenre(live.track);
+    if (sameGenre) score += 2;
+    if (playedRecently(entry)) score -= 6;
+    const why = [m.tempoDiff < 0.03 ? 'mismo tempo' : m.tempoDiff < 0.06 ? 'tempo cercano' : null,
+        m.keyScore === 2 ? 'tonos que combinan' : m.keyScore === 0 ? null : 'tono compatible', sameGenre ? `mismo género (${folderLabel(trackGenre(entry))})` : null].filter(Boolean);
+    return { score, stars: m.stars, why, ok: m.stars >= 2 && m.tempoDiff < 0.06 && !playedRecently(entry) };
+}
+function suggestions(live) {
+    return library.map(e => ({ e, s: suggestScore(e, live) })).filter(x => x.s && x.s.ok).sort((x, y) => y.s.score - x.s.score).slice(0, 6);
+}
+
 function trackMatch(entry, live) {
     if (!live || !live.analysis || !entry.analysis) return null;
     const target = live.effectiveBpm;
@@ -542,8 +577,10 @@ function renderFolderTabs() {
     if (!box) return;
     const counts = {};
     library.forEach(e => { const f = trackFolder(e); counts[f] = (counts[f] || 0) + 1; });
-    const tabs = [['all', `TODOS (${library.length})`]].concat(libraryFolders().filter(f => counts[f] || !GENRES[f]).map(f => [f, `${folderLabel(f)} (${counts[f] || 0})`]));
-    if (libFolder !== 'all' && !tabs.some(t => t[0] === libFolder)) libFolder = 'all';
+    const { live } = liveAndNext();
+    const sug = live && live.track ? suggestions(live).length : 0;
+    const tabs = [['all', `TODOS (${library.length})`]].concat(sug ? [['sug', `★ SUGERIDOS (${sug})`]] : []).concat(libraryFolders().filter(f => counts[f] || !GENRES[f]).map(f => [f, `${folderLabel(f)} (${counts[f] || 0})`]));
+    if (libFolder !== 'all' && libFolder !== 'sug' && !tabs.some(t => t[0] === libFolder)) libFolder = 'all';
     box.innerHTML = '';
     tabs.forEach(([f, label]) => {
         const b = document.createElement('button');
@@ -564,7 +601,10 @@ function renderLibrary() {
         return;
     }
     const q = libSearch.trim().toLowerCase();
-    const shown = library.filter(e => (libFolder === 'all' || trackFolder(e) === libFolder)
+    const sugList = live && live.track ? suggestions(live) : [];
+    const sugSet = new Map(sugList.map(x => [x.e, x.s]));
+    const pool = libFolder === 'sug' ? sugList.map(x => x.e) : library;
+    const shown = pool.filter(e => (libFolder === 'all' || libFolder === 'sug' || trackFolder(e) === libFolder)
         && (!q || `${e.title} ${e.artist}`.toLowerCase().includes(q)));
     body.innerHTML = shown.length ? '' : `<tr><td colspan="8" class="py-3 text-center text-gray-500">${q ? `Nada con "${libSearch}"` : 'Esta carpeta está vacía: arrastra temas aquí abajo con la carpeta abierta'}.</td></tr>`;
     shown.forEach((entry, i) => {
@@ -572,7 +612,9 @@ function renderLibrary() {
         const m = trackMatch(entry, live && live.track !== entry ? live : null);
         const onDeck = deckList.filter(d => d.track === entry).map(d => d.id).join('+');
         const tr = document.createElement('tr');
-        tr.className = `lib-row border-t border-gray-800/60 ${entry.played ? 'opacity-50' : ''}`;
+        const sg = sugSet.get(entry);
+        tr.className = `lib-row border-t border-gray-800/60 ${sg ? 'lib-reco' : ''} ${playedRecently(entry) && !onDeck ? 'opacity-50' : ''}`;
+        if (sg) tr.title = `Recomendado para mezclar con lo que suena: ${sg.why.join(' · ')}`;
         tr.innerHTML = `
             <td class="py-1 text-gray-500">${i + 1}</td>
             <td class="py-1 pr-2"><div class="text-white font-bold truncate max-w-[340px]"></div><div class="text-[10px] text-gray-500 truncate max-w-[340px]"></div></td>
@@ -588,7 +630,8 @@ function renderLibrary() {
                 <button data-remove class="mini-btn" title="Quitar"><i class="fa-solid fa-xmark"></i></button>
             </td>`;
         tr.children[1].children[0].textContent = entry.title;
-        tr.children[1].children[1].textContent = entry.artist + (entry.played ? ' · ya sonó' : '');
+        tr.children[1].children[1].textContent = entry.artist + (entry.played && !entry.lastPlayedAt ? ' · ya sonó' : entry.lastPlayedAt ? ` · sonó ${agoText(entry.lastPlayedAt)}` : '');
+        if (sg) tr.children[1].children[0].insertAdjacentHTML('afterbegin', '<span class="reco-chip">RECOMENDADO</span>');
         const sel = tr.querySelector('[data-folder]');
         const cur = trackFolder(entry);
         libraryFolders().forEach(f => sel.add(new Option(folderLabel(f) + (!entry.folder && f === cur ? ' (auto)' : ''), f)));
@@ -758,7 +801,7 @@ function togglePlay(deck) {
         if (autoMix && autoMix.mode === 'guide' && autoMix.in === deck && !autoMix.started) { guidedStart(autoMix); return; }
         if (deck.getCurrentTime() >= deck.duration - 0.05) deck.pauseOffset = deck.cue;
         deck.play();
-        if (deck.track) deck.track.played = true;
+        markPlayed(deck.track);
         const master = otherDeck(deck);
         if (deck.syncOn && master.isPlaying) alignPhase(deck, master);
         renderLibrary();
@@ -1304,7 +1347,8 @@ function bassAt(analysis, t0, t1) {
 
 const barsWord = (n) => (n === 1 ? '1 compás' : `${+n.toFixed(1)} compases`);
 
-function planTransition(live, next, now = false) {
+function planTransition(live, next, now = false, mode = null) {
+    const guided = (mode || (typeof Profe !== 'undefined' ? Profe.mode() : 'guide')) === 'guide';
     const la = live.analysis, na = next.analysis;
     const r = tempoRatio(next, live, MAX_MIX_PITCH);
     const { liveKey, nextKey, compat } = keyInfo(live, next, r ? r.rate : next.pitch);
@@ -1319,10 +1363,11 @@ function planTransition(live, next, now = false) {
             const diff = Math.abs(live.effectiveBpm / next.bpm - 1) * 100;
             reason = `los tempos (${live.effectiveBpm.toFixed(0)} y ${next.bpm.toFixed(0)} BPM) están a ${diff.toFixed(0)}%: para igualarlos las voces sonarían a ardilla. Se corta con eco y el ${next.id} entra a su velocidad normal`;
         } else if (compat === 0) {
-            // Learned from the history: filter mixes over clashing keys got 👎 (two melodies
-            // out of tune on top of each other). A clean cut with echo sounds right
-            style = 'echo';
-            reason = `las tonalidades ${liveKey} y ${nextKey} chocan: dos melodías encima suenan desafinadas, así que mejor un corte limpio con eco`;
+            // History: filter mixes over clashing keys got 👎 (two melodies out of tune on top of
+            // each other), but an echo cut felt too fast. So: EQ blend where the melodies never
+            // overlap (the new one comes in with only drums/hats, mids swapped in one move)
+            style = 'blend';
+            reason = `las tonalidades ${liveKey} y ${nextKey} chocan: se mezclan con perillas pero sin que las dos melodías suenen juntas (el ${next.id} entra solo con su ritmo, y los MID se cambian de una vez)`;
         } else if (la.mixBars <= 4) {
             style = 'echo';
             reason = 'el tema que suena casi no tiene outro para mezclar encima';
@@ -1354,7 +1399,8 @@ function planTransition(live, next, now = false) {
 
     const pace = resolvedPace(live);
     let bars = style === 'echo' ? 2 : style === 'mashup' ? (pace === 'fast' ? 8 : 16) : recommendedBars(live, next);
-    if (pace === 'fast' && mixBarsSetting === 'auto') bars = Math.min(bars, 8);
+    // Fast pace: 8 bars in AUTO; guided gets 16 so you have time for each move
+    if (pace === 'fast' && mixBarsSetting === 'auto') bars = Math.min(Math.max(bars, guided ? 16 : 8), guided ? 16 : 8);
     if (style === 'filter' && mixBarsSetting === 'auto') bars = Math.min(bars, compat === 0 ? 8 : 16);
     let target = outPoint(live);
     if (now || pos > target - 1.5 * live.playbackRate) target = live.nextBarAfter(pos + 1.2 * live.playbackRate);
@@ -1455,11 +1501,13 @@ function planTransition(live, next, now = false) {
             ? `Stems del ${LB}: deja solo su BATERÍA prendida (VOZ, BAJO y MEL apagados). Va a entrar por partes`
             : `Stems del ${LB}: deja solo su VOZ prendida. Va a cantar encima de la base del ${LA}`, acts);
     }
-    const inEq = style === 'stems' || style === 'mashup' ? { low: 0, mid: 0, high: 0 } : style === 'blend' ? { low: -26, mid: -10, high: -8 } : style === 'filter' ? { low: -26, mid: -8, high: -4 } : { low: 0, mid: 0, high: 0 };
+    const clashBlend = style === 'blend' && compat === 0;
+    const inEq = style === 'stems' || style === 'mashup' ? { low: 0, mid: 0, high: 0 } : clashBlend ? { low: -26, mid: -26, high: -12 } : style === 'blend' ? { low: -26, mid: -10, high: -8 } : style === 'filter' ? { low: -26, mid: -8, high: -4 } : { low: 0, mid: 0, high: 0 };
     const eqActs = ['low', 'mid', 'high'].filter(b => Math.abs(val(`deck-${B}-eq-${b}`) - inEq[b]) > 1).map(b => set(`deck-${B}-eq-${b}`, inEq[b]));
     if (Math.abs(val(`deck-${B}-filter`)) > 3) eqActs.push(set(`deck-${B}-filter`, 0));
     if (eqActs.length) {
         prep(style === 'echo' ? `Perillas del ${LB} en 0: entra con todo, en su drop`
+            : clashBlend ? `Deja las perillas del ${LB} listas: LOW −26, MID −26, HI −12. Entra solo su ritmo: los tonos chocan y su melodía espera`
             : `Deja las perillas del ${LB} listas: LOW −26, MID ${inEq.mid}, HI ${inEq.high}. Así entra suave, sin bajo y sin subir el volumen`, eqActs);
     }
     const outEqActs = ['low', 'mid', 'high'].filter(b => Math.abs(val(`deck-${A}-eq-${b}`)) > 1).map(b => set(`deck-${A}-eq-${b}`, 0));
@@ -1489,6 +1537,18 @@ function planTransition(live, next, now = false) {
         step(bars, `¡Entra el ${LB} completo! BATERÍA, BAJO y MELODÍA del ${LB} ON y crossfader entero al ${LB}`,
             [set(SI(next, 'drums'), 1, 0.25), set(SI(next, 'bass'), 1, 0.25), set(SI(next, 'other'), 1, 0.25), set('crossfader', xIn, 1)]);
         step(bars - 0.5, `Opcional: pad IMPACTO justo cuando entra el ${LB} completo`, [{ type: 'pad', pad: 1, bar: bars }]);
+    } else if (clashBlend) {
+        // Keys clash: never both melodies at once. Rhythm first, then bass, then ONE mid swap
+        step(0, `${playText} (entra solo su ritmo) y lleva el crossfader al centro (se mueve solo en ${barsWord(q)})`, [{ type: 'startIn' }, set('crossfader', 0, q)]);
+        step(q, `Sube el HI del ${LB} a 0 (sus platillos): todavía sin su melodía`, [set(`deck-${B}-eq-high`, 0, 1)]);
+        if (!bassOnDrop) step(bars / 2, `Cambio de bajos: ${swapText}`, [set(`deck-${A}-eq-low`, -26, 0.5), set(`deck-${B}-eq-low`, 0, 0.5)]);
+        step(3 * q, `Cambio de melodía de una sola vez: MID del ${LA} a −26 y MID del ${LB} a 0 (un clic hace los dos: nunca suenan juntas)`,
+            [set(`deck-${A}-eq-mid`, -26, 0.5), set(`deck-${B}-eq-mid`, 0, 0.5), set(`deck-${A}-eq-high`, -12, 1)]);
+        step(bars - 1, `Prende el ${FX_LABELS[endFx.fx]} del ${LA} (FX ON) para despedirlo`, [{ type: 'fx', deck: A, ...endFx }]);
+        if (bassOnDrop) step(bars, `¡Drop del ${LB}! Cambio de bajos (${swapText}) y crossfader entero al ${LB}`,
+            [set(`deck-${A}-eq-low`, -26, 0.25), set(`deck-${B}-eq-low`, 0, 0.25), set('crossfader', xIn, 1)]);
+        else step(bars, `Crossfader entero al ${LB} (en 1 compás)`, [set('crossfader', xIn, 1)]);
+        padSteps();
     } else if (style === 'blend') {
         // Glides are in bars: a click starts the move and the knob turns by itself at DJ speed
         step(0, `${playText} y lleva el crossfader al centro (se mueve solo en ${barsWord(q)})`, [{ type: 'startIn' }, set('crossfader', 0, q)]);
@@ -1562,7 +1622,7 @@ function startAutoMix(now = false, mode = 'auto') {
     if (!live.analysis || !next.analysis) { toast('Necesitas temas cargados en ambos decks', 'warn'); return false; }
     if (!live.isPlaying) { toast(`Dale PLAY al Deck ${live.id} primero`, 'warn'); return false; }
 
-    const plan = planTransition(live, next, now);
+    const plan = planTransition(live, next, now, mode);
     live.pitchReturn = null; // freeze the playing deck's tempo during the mix
     if (plan.synced) next.syncFactor = plan.factor;
     if (mode === 'guide') {
@@ -1593,7 +1653,7 @@ function startAutoMix(now = false, mode = 'auto') {
         autoMix.started = true;
         autoMix.phase = 'mixing';
         if (typeof Historial !== 'undefined') Historial.mixCameIn(autoMix);
-        if (next.track) next.track.played = true;
+        markPlayed(next.track);
     }
     // Crossfader on the playing side so the incoming deck starts silent
     if (mode === 'auto') glideControl('crossfader', plan.xOut, 400);
@@ -1946,7 +2006,7 @@ function guidedStart(m) {
     m.pausedBars = 0;
     if (typeof Historial !== 'undefined') Historial.mixCameIn(m);
     inc.play(plan.inStart, m.startCtx);
-    if (inc.track) inc.track.played = true;
+    markPlayed(inc.track);
     m.started = true;
     m.phase = 'mixing';
     if (dt > 0.25) toast(`El ${inc.id} entra justo en el próximo compás`, 'ok');
@@ -1969,7 +2029,7 @@ function tickAutoMix() {
             m.startCtx = audioCtx.currentTime + Math.max(0.01, dt);
             if (!inc.isPlaying) {
                 inc.play(plan.inStart, m.startCtx);
-                if (inc.track) inc.track.played = true;
+                markPlayed(inc.track);
             } else if (plan.synced) {
                 alignPhase(inc, out);
             }
@@ -2149,7 +2209,7 @@ function updateAssistant() {
         if (!plan.synced) add('fa-triangle-exclamation', 'text-amber-400', `Tempos muy distintos (${live.effectiveBpm.toFixed(0)} vs ${next.bpm.toFixed(0)} BPM). Si el BPM detectado está mal, corrígelo con ½ / ×2 / TAP.`);
         if (compat === 2) add('fa-music', 'text-emerald-400', `Tonalidad ${liveKey} → ${nextKey}: <b>armónica</b>.`);
         else if (compat === 1) add('fa-music', 'text-amber-300', `Tonalidad ${liveKey} → ${nextKey}: compatible (cambio de energía).`);
-        else if (compat === 0) add('fa-music', 'text-rose-400', `Tonalidad ${liveKey} → ${nextKey}: <b>chocan</b>, mejor una mezcla corta.`);
+        else if (compat === 0) add('fa-music', 'text-rose-400', `Tonalidad ${liveKey} → ${nextKey}: <b>chocan</b>: el profe no deja sonar las dos melodías juntas.`);
         planHtml = renderPlan(plan, autoMix, live, next);
     }
     if (autoDJ) add('fa-robot', 'text-emerald-400', `AUTO DJ activo: ${library.filter(e => !e.played).length} tema(s) sin tocar en la librería.`);

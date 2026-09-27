@@ -98,6 +98,13 @@ merges them into `historial/` (gitignored) and publishes an orphan-style branch
   analyses store `a.genre`; old ones compute it lazily. The user can override it with the
   track's library **folder** (`entry.folder`: a genre or a custom name). Pace follows the
   genre (reggaeton/urbano fast, electronica long), BPM only as a fallback.
+- **Clashing keys, close tempos:** EQ blend where the melodies never overlap (`clashBlend`:
+  B enters LOW −26 / MID −26 / HI −12, hats up, bass swap, then ONE mid swap). Echo only for
+  far tempos (the user found the echo cut "too fast" and missed the knob guidance).
+- **Guided mixes are longer:** fast pace = 16 bars in GUIADO (time for each move), 8 in AUTO.
+- **Suggestions:** `suggestScore` (tempo/key stars, same genre, not played in the last 3 h
+  via the saved `lastPlayedAt`) highlights up to 6 rows (RECOMENDADO) and a ★ SUGERIDOS tab;
+  rows show "sonó hace 12 min".
 - **Library:** search box (title/artist), folder tabs with counts (genres + custom folders),
   per-row folder select (+ "Nueva carpeta…"); tracks added with a folder open go into it.
 - **Pace:** reggaeton/latin/hip-hop (< 112 BPM) mix *early*: at a phrase boundary
