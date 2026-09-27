@@ -91,6 +91,15 @@ merges them into `historial/` (gitignored) and publishes an orphan-style branch
   pitch past ±6% (`MAX_MIX_PITCH`), SYNC past ±8%. If tempos are further apart
   use ECHO OUT (new track at its own speed). After a mix, return the new track's
   pitch to 0 slowly (32 bars).
+- **Genre (from the groove):** `Analysis.detectGenre(a)` folds the saved band envelopes over
+  a 2-beat cell in 16ths: dembow (hit on the ¾-beat 16th) → `reggaeton`; kick on every beat
+  (fourFloor) ≥ 108 BPM → `electronica`; slower / half-time → `urbano`; else `otros`
+  (synthetic dembow, hip hop, trap, house, techno, afro house all classified right). New
+  analyses store `a.genre`; old ones compute it lazily. The user can override it with the
+  track's library **folder** (`entry.folder`: a genre or a custom name). Pace follows the
+  genre (reggaeton/urbano fast, electronica long), BPM only as a fallback.
+- **Library:** search box (title/artist), folder tabs with counts (genres + custom folders),
+  per-row folder select (+ "Nueva carpeta…"); tracks added with a folder open go into it.
 - **Pace:** reggaeton/latin/hip-hop (< 112 BPM) mix *early*: at a phrase boundary
   after ~1 min where the energy drops (end of a chorus), 8-bar transitions.
   House/techno mix in the outro, 16–32 bars.

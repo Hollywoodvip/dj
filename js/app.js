@@ -471,6 +471,8 @@ async function importTrack({ title, artist, source, bytes, url = null }) {
     const buffer = await decodeBytes(bytes);
     const analysis = await Analysis.analyzeTrack(buffer);
     const entry = { id: ++libraryId, title, artist, source, url, bytes, analysis, duration: buffer.duration, cues: null, addedAt: Date.now(), played: false };
+    // Added with a folder open: it goes into that folder
+    if (libFolder !== 'all') entry.folder = libFolder;
     library.push(entry);
     renderLibrary();
     saveEntry(entry);
@@ -528,16 +530,44 @@ function trackMatch(entry, live) {
     return { stars, tempoDiff, keyScore };
 }
 
+let libFolder = (() => { try { return localStorage.getItem('webdj-lib-folder') || 'all'; } catch (e) { return 'all'; } })();
+let libSearch = '';
+function libraryFolders() {
+    const names = Object.keys(GENRES);
+    library.forEach(e => { const f = trackFolder(e); if (!names.includes(f)) names.push(f); });
+    return names;
+}
+function renderFolderTabs() {
+    const box = $('lib-folders');
+    if (!box) return;
+    const counts = {};
+    library.forEach(e => { const f = trackFolder(e); counts[f] = (counts[f] || 0) + 1; });
+    const tabs = [['all', `TODOS (${library.length})`]].concat(libraryFolders().filter(f => counts[f] || !GENRES[f]).map(f => [f, `${folderLabel(f)} (${counts[f] || 0})`]));
+    if (libFolder !== 'all' && !tabs.some(t => t[0] === libFolder)) libFolder = 'all';
+    box.innerHTML = '';
+    tabs.forEach(([f, label]) => {
+        const b = document.createElement('button');
+        b.className = `mini-btn ${f === libFolder ? 'mini-btn-on' : ''}`;
+        b.textContent = label;
+        b.onclick = () => { libFolder = f; try { localStorage.setItem('webdj-lib-folder', f); } catch (e) {} renderLibrary(); };
+        box.appendChild(b);
+    });
+}
+
 function renderLibrary() {
     const { live } = liveAndNext();
     refreshStorageInfo();
+    renderFolderTabs();
     const body = $('library-body');
     if (!library.length) {
-        body.innerHTML = '<tr><td colspan="7" class="py-3 text-center text-gray-500">Vacía. Extrae temas de YouTube o arrastra archivos aquí abajo.</td></tr>';
+        body.innerHTML = '<tr><td colspan="8" class="py-3 text-center text-gray-500">Vacía. Extrae temas de YouTube o arrastra archivos aquí abajo.</td></tr>';
         return;
     }
-    body.innerHTML = '';
-    library.forEach((entry, i) => {
+    const q = libSearch.trim().toLowerCase();
+    const shown = library.filter(e => (libFolder === 'all' || trackFolder(e) === libFolder)
+        && (!q || `${e.title} ${e.artist}`.toLowerCase().includes(q)));
+    body.innerHTML = shown.length ? '' : `<tr><td colspan="8" class="py-3 text-center text-gray-500">${q ? `Nada con "${libSearch}"` : 'Esta carpeta está vacía: arrastra temas aquí abajo con la carpeta abierta'}.</td></tr>`;
+    shown.forEach((entry, i) => {
         const a = entry.analysis;
         const m = trackMatch(entry, live && live.track !== entry ? live : null);
         const onDeck = deckList.filter(d => d.track === entry).map(d => d.id).join('+');
@@ -549,6 +579,7 @@ function renderLibrary() {
             <td class="font-digits text-[11px]">${a ? a.bpm.toFixed(1) : '--'}</td>
             <td><span class="tag">${a && a.key ? a.key.camelot : '--'}</span></td>
             <td class="font-digits text-[11px]">${formatTime(entry.duration, false)}</td>
+            <td><select data-folder class="lib-folder" title="Carpeta (el género se detecta solo por el ritmo; cámbialo si no corresponde)"></select></td>
             <td class="text-emerald-400">${m ? '<i class="fa-solid fa-star"></i>'.repeat(m.stars) + '<i class="fa-regular fa-star text-gray-700"></i>'.repeat(3 - m.stars) : ''}</td>
             <td class="text-right whitespace-nowrap">
                 ${onDeck ? `<span class="text-[10px] text-gray-400 mr-1">EN ${onDeck}</span>` : ''}
@@ -558,6 +589,23 @@ function renderLibrary() {
             </td>`;
         tr.children[1].children[0].textContent = entry.title;
         tr.children[1].children[1].textContent = entry.artist + (entry.played ? ' · ya sonó' : '');
+        const sel = tr.querySelector('[data-folder]');
+        const cur = trackFolder(entry);
+        libraryFolders().forEach(f => sel.add(new Option(folderLabel(f) + (!entry.folder && f === cur ? ' (auto)' : ''), f)));
+        sel.add(new Option('+ Nueva carpeta…', '__new'));
+        sel.value = cur;
+        sel.onchange = () => {
+            let f = sel.value;
+            if (f === '__new') {
+                f = (prompt('Nombre de la carpeta (ej: PERREO, AFRO HOUSE, PREVIA):') || '').trim().toLowerCase();
+                if (!f) { sel.value = cur; return; }
+            }
+            entry.folder = f;
+            if (entry.analysis) delete entry.analysis.fastOut;
+            saveEntry(entry);
+            renderLibrary();
+            updateAssistant();
+        };
         tr.querySelector('[data-load="a"]').onclick = () => loadEntryToDeck(entry, decks.a);
         tr.querySelector('[data-load="b"]').onclick = () => loadEntryToDeck(entry, decks.b);
         tr.querySelector('[data-remove]').onclick = () => {
@@ -1169,8 +1217,25 @@ function barsToSec(deck, bars) { return bars * 4 * deck.beatSec; }
 
 /* ---------- mixing pace: fast (reggaeton, latin, hip-hop) vs long (house, techno) ---------- */
 let mixPaceSetting = 'auto';
+/* ---------- genre (from the groove) and library folders ---------- */
+const GENRES = { reggaeton: 'REGGAETÓN', urbano: 'URBANO', electronica: 'ELECTRÓNICA', otros: 'OTROS' };
+const folderLabel = (f) => GENRES[f] || String(f).toUpperCase();
+// The track's genre: what you set (its folder, if it's a genre) or what the analysis heard
+function trackGenre(entry) {
+    if (!entry) return 'otros';
+    if (entry.folder && GENRES[entry.folder]) return entry.folder;
+    const a = entry.analysis;
+    if (a && !a.genre && a.wave) { const g = Analysis.detectGenre(a); a.genre = g ? g.genre : 'otros'; }
+    return (a && a.genre) || 'otros';
+}
+const trackFolder = (entry) => (entry && entry.folder) || trackGenre(entry);
+
+// Reggaeton / urban: mix early and short. House / techno: long, in the outro
 function resolvedPace(deck) {
     if (mixPaceSetting !== 'auto') return mixPaceSetting;
+    const g = deck.track && !deck.track.demo ? trackGenre(deck.track) : null;
+    if (g === 'reggaeton' || g === 'urbano') return 'fast';
+    if (g === 'electronica') return 'long';
     return deck.effectiveBpm < 112 ? 'fast' : 'long';
 }
 
@@ -1993,7 +2058,7 @@ function deckCard(deck, role) {
     }
     return `
         <div class="flex justify-between items-center mb-1">
-            <span class="${c} font-bold text-[10px]">${role} · DECK ${deck.id}${deck.isPlaying ? ' ▶' : ''}</span>
+            <span class="${c} font-bold text-[10px]">${role} · DECK ${deck.id}${deck.isPlaying ? ' ▶' : ''}${deck.track && !deck.track.demo ? ` <span class="tag" title="Género detectado por el ritmo (cámbialo con la carpeta en la librería)">${folderLabel(trackGenre(deck.track))}</span>` : ''}</span>
             <span class="font-digits text-[10px] text-gray-300">${deck.effectiveBpm.toFixed(1)} BPM · <span class="tag">${key}</span>${deck.trimDb ? ` <span class="tag" title="Nivelación automática de volumen">${deck.trimDb > 0 ? '+' : ''}${deck.trimDb.toFixed(1)}dB</span>` : ''}</span>
         </div>
         <div class="text-white font-bold truncate">${escapeHtml(deck.track ? deck.track.title : '')}</div>
@@ -2050,8 +2115,9 @@ function renderPlan(plan, m, live, next) {
             <span class="font-digits text-[10px] text-gray-300">${status}</span>
         </div>
         <div class="text-[11px] text-gray-400 mb-1">Por qué: ${plan.reason}. ${plan.pace === 'fast'
-            ? 'Ritmo rápido (reggaetón/latino): se mezcla temprano, al terminar un coro, para que la pista no se haga larga.'
-            : 'Ritmo largo (house/techno): se mezcla en el outro, que está hecho para eso.'}</div>
+            ? `Ritmo rápido (${live.track && !live.track.demo ? folderLabel(trackGenre(live.track)) : 'reggaetón/urbano'}): se mezcla temprano, al terminar un coro, para que la pista no se haga larga.`
+            : `Ritmo largo (${live.track && !live.track.demo ? folderLabel(trackGenre(live.track)) : 'house/techno'}): se mezcla en el outro, que está hecho para eso.`}${live.track && next.track && !live.track.demo && !next.track.demo && trackGenre(live.track) !== trackGenre(next.track)
+            ? ` <b class="text-amber-300">Cambio de género (${folderLabel(trackGenre(live.track))} → ${folderLabel(trackGenre(next.track))})</b>: hazlo en un momento de energía alta y con un corte limpio, la gente lo siente como una sorpresa.` : ''}</div>
         <div class="text-[11px] text-gray-200 mb-2">
             <i class="fa-solid fa-play text-emerald-400 mr-1"></i>Empieza cuando el <b>${live.id}</b> llegue a <b class="text-orange-400">${formatTime(plan.target, false)}</b>
             · el <b>${next.id}</b> arranca desde <b class="text-emerald-400">${formatTime(plan.inStart, false)}</b>${plan.useDrop ? ' (directo en su drop)' : plan.dropAtEnd ? ` <span class="text-violet-300">(así su DROP cae justo al terminar la mezcla, en el compás ${plan.dropBar})</span>` : ''}
@@ -2767,6 +2833,7 @@ function setupDeck(deck) {
 function setupGlobal() {
     $('audio-init-btn').addEventListener('click', ensureAudio);
     $('rec-btn').addEventListener('click', toggleRecording);
+    $('lib-search').addEventListener('input', (e) => { libSearch = e.target.value; renderLibrary(); });
     $('library-clear').addEventListener('click', async () => {
         if (!confirm('¿Borrar TODOS los temas guardados en este navegador? No se puede deshacer.')) return;
         await Store.clear();

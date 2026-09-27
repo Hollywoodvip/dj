@@ -94,6 +94,8 @@ const Historial = (() => {
             mixBars: a.mixBars, musicEnd: r3(a.musicEnd),
             breakdowns: (a.breakdowns || []).map(b => ({ start: r3(b.start), end: r3(b.end) })),
             cues: e.cues || null, energyPerBar: bands,
+            genre: a.genre || (Analysis.detectGenre(a) || {}).genre || null, folder: e.folder || null,
+            groove: (() => { const g = Analysis.detectGenre(a); return g ? { dembow: g.dembow, fourFloor: g.fourFloor } : null; })(),
         };
     }
 

@@ -343,6 +343,45 @@ const Analysis = (() => {
         return a;
     }
 
+    /* ---------------- Genre from the groove ----------------
+       Works from the saved band envelopes (no re-decoding), folded over a 2-beat cell in
+       16ths: the dembow puts a hit on the 3rd 16th (¾ of a beat), house/techno puts the
+       kick on every beat and the hat on the offbeats. Mixing depends on it: reggaeton /
+       urban mix early and short, house / techno mix long in the outro. */
+    function detectGenre(a) {
+        if (!a || !a.wave || !a.wave[0] || !a.beatSec) return null;
+        const [low, mid, high] = a.wave;
+        const cell = 2 * a.beatSec, F = FPS;
+        const from = Math.max(0, Math.floor((a.phraseStart ?? a.mixIn ?? 0) * F));
+        const to = Math.min(low.length, Math.floor((a.musicEnd || a.duration) * F));
+        const fold = (env) => {
+            const bins = new Float32Array(8), cnt = new Float32Array(8);
+            for (let i = from + 1; i < to; i++) {
+                const rise = env(i) - env(i - 1);
+                if (rise <= 0) continue;
+                const ph = (((i / F - a.firstBeat) / cell) % 1 + 1) % 1 * 8;
+                const bin = Math.round(ph) % 8;
+                if (Math.abs(ph - Math.round(ph)) > 0.3) continue; // only right on a 16th
+                bins[bin] += rise; cnt[bin]++;
+            }
+            const total = bins.reduce((x, y) => x + y, 0) || 1;
+            return Array.from(bins, v => v / total);
+        };
+        const L = fold(i => low[i]);
+        const H = fold(i => mid[i] + high[i]);
+        // Dembow: the ¾-beat hit (16th 3) against the plain offbeat / off-16ths
+        const dembow = H[3] / Math.max(1e-6, (H[1] + H[2] + H[5] + H[7]) / 4);
+        // Four on the floor: the kick on the beats (0, 4) against everything else in the low band
+        const fourFloor = ((L[0] + L[4]) / 2) / Math.max(1e-6, (L[1] + L[2] + L[3] + L[5] + L[6] + L[7]) / 6);
+        const bpm = a.bpm;
+        let genre = 'otros';
+        if (dembow > 3 && bpm >= 78 && bpm <= 112) genre = 'reggaeton';
+        else if (bpm >= 140 && dembow > 3 && fourFloor < 5) genre = 'reggaeton'; // detected at double tempo
+        else if (bpm >= 108 && fourFloor > 5) genre = 'electronica';
+        else if (bpm < 112 || bpm >= 130) genre = 'urbano'; // hip hop, R&B, pop latino, trap (half-time kick)
+        return { genre, dembow: Math.round(dembow * 100) / 100, fourFloor: Math.round(fourFloor * 100) / 100 };
+    }
+
     /* ---------------- Key detection (chroma + Krumhansl profiles) ---------------- */
     const KEY_RATE = 11025;
     const FFT_SIZE = 4096;
@@ -535,11 +574,19 @@ const Analysis = (() => {
             ...structure,
         });
     }
+    // The genre goes with every new analysis (older ones get it from their saved envelopes)
+    const analyzeTrackBase = analyzeTrack;
+    analyzeTrack = async function (buffer, knownBpm = null) {
+        const a = await analyzeTrackBase(buffer, knownBpm);
+        const g = detectGenre(a);
+        a.genre = g ? g.genre : 'otros';
+        return a;
+    };
 
     // Beat grid for a track whose tempo is known and starts on the downbeat (demo beats)
     function simpleGrid(buffer, bpm) {
         return analyzeTrack(buffer, bpm);
     }
 
-    return { VERSION, FPS, refineOutro, analyzeTrack, simpleGrid, shiftCamelot, keyCompatibility, detectKey };
+    return { VERSION, FPS, refineOutro, detectGenre, analyzeTrack, simpleGrid, shiftCamelot, keyCompatibility, detectKey };
 })();

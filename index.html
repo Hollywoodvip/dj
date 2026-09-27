@@ -130,6 +130,7 @@
         /* Crossfader: where the mix plan wants it right now */
         .xf-plan { position: absolute; top: -5px; width: 2px; height: calc(100% + 10px); background: #34d399; border-radius: 1px; pointer-events: none; box-shadow: 0 0 6px rgba(52,211,153,0.8); transition: left 0.2s linear; }
         .xf-plan::before { content: 'PLAN'; position: absolute; bottom: -11px; left: 50%; transform: translateX(-50%); font-size: 8px; font-weight: 700; color: #34d399; }
+        .lib-folder { background: #111827; border: 1px solid #374151; border-radius: 4px; font-size: 10px; color: #d1d5db; padding: 1px 2px; max-width: 9rem; }
         .btn-stem:disabled { opacity: 0.35; cursor: not-allowed; }
         .btn-stem.stem-on { background: #064e3b; border-color: #10b981; color: #d1fae5; }
         .btn-stem.stem-off { background: #1f2937; color: #6b7280; text-decoration: line-through; }
@@ -356,15 +357,17 @@
                 <i class="fa-solid fa-folder-open text-amber-400"></i>
                 <span class="font-bold text-sm text-white">LIBRARY</span>
                 <span id="library-count" class="text-[10px] text-gray-500"></span>
+                <input id="lib-search" type="search" placeholder="Buscar tema o artista…" class="bg-gray-900 border border-gray-700 rounded px-2 py-0.5 text-xs w-52 text-gray-200 placeholder-gray-500">
                 <button id="history-share" class="mini-btn" title="Guarda el análisis de tus temas (sin el audio) y cómo te fueron las mezclas, y lo sube a la rama 'historial' del repo para que el profe aprenda">COMPARTIR HISTORIAL</button>
                 <button id="library-clear" class="mini-btn hidden" title="Borra todos los temas guardados en este navegador">BORRAR TODO</button>
             </div>
             <span class="text-[10px] text-gray-400"><i class="fa-solid fa-star text-emerald-400"></i> = combina con lo que está sonando (tempo + tonalidad)</span>
         </div>
+        <div id="lib-folders" class="flex flex-wrap gap-1 mb-2"></div>
         <div class="max-h-64 overflow-y-auto scrollbar-thin">
             <table class="w-full text-xs">
                 <thead class="text-[10px] text-gray-500 text-left sticky top-0 bg-[#0f1116]">
-                    <tr><th class="py-1 w-6"></th><th>TRACK</th><th class="w-16">BPM</th><th class="w-16">KEY</th><th class="w-14">TIME</th><th class="w-16">MATCH</th><th class="w-28 text-right">LOAD</th></tr>
+                    <tr><th class="py-1 w-6"></th><th>TRACK</th><th class="w-16">BPM</th><th class="w-16">KEY</th><th class="w-14">TIME</th><th class="w-36">CARPETA</th><th class="w-16">MATCH</th><th class="w-28 text-right">LOAD</th></tr>
                 </thead>
                 <tbody id="library-body"></tbody>
             </table>
