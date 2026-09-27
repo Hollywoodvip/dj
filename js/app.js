@@ -941,6 +941,8 @@ function mixMap(deck) {
                 else if (a.type === 'set' && a.id === `deck-${m.out.key}-eq-low` && a.value < -20) marks.push({ t: at(st.at), label: 'BAJOS', color: '#f59e0b' });
                 else if (a.type === 'fx') marks.push({ t: at(st.at), label: 'FX', color: '#a78bfa' });
                 else if (a.type === 'pauseOut') marks.push({ t: at(st.at), label: `PAUSA ${O}`, color: '#f43f5e' });
+                else if (a.type === 'pad' && a.pad === 0) marks.push({ t: at(st.at), label: 'SUBIDA', color: '#fbbf24' });
+                else if (a.type === 'loop') marks.push({ t: at(st.at), label: 'LOOP', color: '#facc15' });
             });
         });
         const ends = marks.map(k => k.t);
@@ -1286,6 +1288,13 @@ function planTransition(live, next, now = false) {
     // so there is never a moment without bass (that's the "hole" that sounds like a volume drop)
     const bassOnDrop = style !== 'echo' && dropAtEnd && bassAt(na, inStart + (bars / 2) * barIn, inStart + (bars - 0.5) * barIn) < 0.45;
     const swapText = `LOW del ${LA} a −26 y LOW del ${LB} a 0 (al mismo tiempo, así el volumen no baja)`;
+    // Transition FX from the sampler when the new track's drop lands at the end of the mix
+    // (optional: the plan never waits for them)
+    const padSteps = () => {
+        if (!dropAtEnd || bars < 4) return;
+        step(bars - (bars >= 8 ? 4 : 2), `Opcional: pad SUBIDA del sampler, termina solo justo en el drop del ${LB}`, [{ type: 'pad', pad: 0, bar: bars }]);
+        step(bars - 0.5, `Opcional: pad IMPACTO, suena justo en el drop del ${LB}`, [{ type: 'pad', pad: 1, bar: bars }]);
+    };
     const endFx = style === 'blend' && pace !== 'fast' ? { fx: 'reverb', beats: 2, level: 0.45 } : { fx: 'echo', beats: 0.5, level: style === 'echo' ? 0.7 : 0.55 };
 
     /* ---------- PREPARATION (right after loading the track, one thing at a time) ---------- */
@@ -1343,6 +1352,7 @@ function planTransition(live, next, now = false) {
         if (bassOnDrop) step(bars, `¡Llega el drop del ${LB}! Cambio de bajos justo en el 1 (${swapText}) y crossfader entero al ${LB}. Un clic hace todo`,
             [set(`deck-${A}-eq-low`, -26, 0.25), set(`deck-${B}-eq-low`, 0, 0.25), set('crossfader', xIn, 1)]);
         else step(bars, `Crossfader entero al ${LB} (en 1 compás)`, [set('crossfader', xIn, 1)]);
+        padSteps();
     } else if (style === 'filter') {
         // The filter only starts after the bass swap: before that the old track carries the
         // bass, so the mix never runs out of low end (that's what sounds like a volume drop)
@@ -1362,7 +1372,10 @@ function planTransition(live, next, now = false) {
         if (bassOnDrop) step(bars, `¡Drop del ${LB}! LOW del ${LB} a 0, LOW del ${LA} a −26 y crossfader entero al ${LB} (el eco se apaga solo)`,
             [set(`deck-${B}-eq-low`, 0, 0.25), set(`deck-${A}-eq-low`, -26, 0.25), set('crossfader', xIn, 1)]);
         else step(bars, `Crossfader entero al ${LB} (el eco se va apagando solo)`, [set('crossfader', xIn, 1)]);
+        padSteps();
     } else {
+        // Loop the old track's last bar: it holds the music (in time) while you do the cut
+        step(-2, `LOOP 4 del ${LA}: repite su último compás a tiempo mientras haces el corte (así no te apuras)`, [{ type: 'loop', beats: 4 }]);
         // Echo on + the old track's bass out: the echo tail stays clean under the new track
         step(-1, `Prende el ECHO del ${LA} (FX ON) y baja su LOW a −26: el eco queda limpio, sin bajo`, [{ type: 'fx', deck: A, ...endFx }, set(`deck-${A}-eq-low`, -26, 0.5)]);
         step(0, `${playText} y pasa el crossfader entero al ${LB}: el eco del ${LA} sigue sonando solo`,
@@ -1510,6 +1523,18 @@ function fireStep(m, step) {
             const go = () => { inc.cue = at; inc.seek(at); };
             if (m.mode === 'auto') go();
             else step.pending.push({ id: `deck-${inc.key}-cue-btn`, label: `IR A ${formatTime(at, false)} · clic`, check: () => !inc.isPlaying && Math.abs(inc.getCurrentTime() - at) < 0.15, run: go });
+        } else if (a.type === 'pad') {
+            // Scheduled on the mix's own clock: SUBIDA ends on bar a.bar, IMPACTO hits it
+            const when = () => audioCtx.currentTime + (a.bar - mixBarPosition(m)) * mixBarSeconds(m);
+            const go = () => { if (a.done) return; a.done = true; triggerPad(a.pad, a.pad === 0 ? { endCtx: when() } : { atCtx: when() }); };
+            if (m.mode === 'auto') go();
+            else step.pending.push({ id: `pad-${a.pad}`, label: a.pad === 0 ? 'termina en el drop · clic' : 'suena en el drop · clic', optional: true,
+                until: a.pad === 0 ? a.bar - 1 : a.bar + 0.1, check: () => !!a.done, run: go });
+        } else if (a.type === 'loop') {
+            const out = m.out;
+            const go = () => { if (!out.loop.active) stretchLoopBeats(out, a.beats); };
+            if (m.mode === 'auto') go();
+            else if (!m.started) step.pending.push({ id: `deck-${out.key}-loop-${a.beats}`, label: 'LOOP · clic', check: () => out.loop.active, run: go });
         } else if (a.type === 'pfl') {
             const inc = m.in;
             if (m.mode === 'auto') Cue.setPfl(inc, true);
@@ -1554,8 +1579,9 @@ function musicLeftBars(deck) {
     return (end - deck.getCurrentTime()) / (4 * deck.beatSec);
 }
 // Loop of the last 2 bars of music, in time, to stretch the end of a track
-function stretchLoop(deck) {
-    deck.loopFromBar(8, deck.analysis ? deck.analysis.musicEnd || deck.duration : deck.duration);
+function stretchLoop(deck) { stretchLoopBeats(deck, 8); }
+function stretchLoopBeats(deck, beats) {
+    deck.loopFromBar(beats, deck.analysis ? deck.analysis.musicEnd || deck.duration : deck.duration);
     refreshDeckButtons(deck);
 }
 
@@ -1583,10 +1609,17 @@ function refreshCoachTargets() {
     const m = autoMix;
     if (!m) { setCoachTargets([]); return; }
     const targets = m.loopTarget ? [m.loopTarget] : [];
-    m.plan.steps.forEach(s => { s.pending = (s.pending || []).filter(t => !targetReached(t)); });
-    // Echo out, guided: first the echo (and the bass out), then PLAY, then the crossfader
-    const echoPending = m.plan.style === 'echo' && !m.started && m.plan.steps.some(s => s.fired && s.actions.some(a => a.type === 'fx') && s.pending.length);
-    m.plan.steps.forEach(s => targets.push(...s.pending.filter(t => !(t.afterStart && !m.started) && !(t.startTarget && echoPending))));
+    const bp = mixBarPosition(m);
+    m.plan.steps.forEach(s => { s.pending = (s.pending || []).filter(t => !targetReached(t) && !(t.optional && bp > t.until)); });
+    if (m.extraTargets) m.extraTargets = m.extraTargets.filter(t => !targetReached(t));
+    // Before the new track comes in (echo out): one thing at a time — loop, then echo +
+    // bass out, then PLAY; the crossfader only once the new track plays
+    const pre = m.started ? [] : m.plan.steps.filter(s => !s.prep && s.fired && s.at < 0 && s.pending.length).sort((x, y) => x.at - y.at);
+    m.plan.steps.forEach(s => {
+        if (pre.length && s.at < 0 && !s.prep && s !== pre[0]) return;
+        targets.push(...s.pending.filter(t => !(t.afterStart && !m.started) && !(t.startTarget && pre.length)));
+    });
+    targets.push(...(m.extraTargets || []));
     setCoachTargets(targets);
 }
 
@@ -1672,9 +1705,13 @@ function finishAutoMix(early = false) {
     if (out.loop.active && !out.isPlaying) out.exitLoop(); // the stretch loop is done
     ['low', 'mid', 'high'].forEach(b => setControl(`deck-${out.key}-eq-${b}`, 0));
     setControl(`deck-${out.key}-filter`, 0);
-    // The new track's knobs go back to 0 over a bar (a snap would jump the volume)
-    resetChannel(inc, clamp(4 * inc.beatSec / inc.playbackRate * 1000, 1200, 2500));
-    if (out.isPlaying) glideControl('crossfader', plan.xIn, 1500); else setControl('crossfader', plan.xIn);
+    if (m.mode === 'auto') {
+        // The new track's knobs go back to 0 over a bar (a snap would jump the volume)
+        resetChannel(inc, clamp(4 * inc.beatSec / inc.playbackRate * 1000, 1200, 2500));
+        if (out.isPlaying) glideControl('crossfader', plan.xIn, 1500); else setControl('crossfader', plan.xIn);
+    }
+    // Guided: the crossfader and the new track's knobs stay where YOU left them (the
+    // profe lights them if something is off, and the next mix starts by placing the crossfader)
     if (out.syncOn) out.syncOn = false;
     inc.syncOn = false;
     startPitchReturn(inc, 32);
@@ -1744,7 +1781,7 @@ function tickAutoMix() {
         const now = audioCtx.currentTime;
         const dtBars = m.lastCtx ? (now - m.lastCtx) / mixBarSeconds(m) : 0;
         m.lastCtx = now;
-        const waiting = plan.steps.some(s => s.fired && s.pending && s.pending.length);
+        const waiting = plan.steps.some(s => s.fired && s.pending && s.pending.some(t => !t.optional)); // optional FX never hold the plan
         const nextStep = plan.steps.find(s => !s.fired);
         const outLeftBars = (out.duration - out.getCurrentTime()) / (4 * out.beatSec);
         m.waiting = false;
@@ -1761,7 +1798,9 @@ function tickAutoMix() {
             m.skipped = true;
             plan.steps.forEach(s => { if (s.at < pauseStep.at) { s.fired = true; s.pending = []; } });
             m.pausedBars = (m.pausedBars || 0) - (pauseStep.at - mixBarPosition(m));
-            resetChannel(inc, 1500); // the new track plays full (bass, mids, highs), smoothly
+            // The new track should play full (bass, mids, highs): light what's still cut
+            m.extraTargets = ['low', 'mid', 'high'].map(b => `deck-${inc.key}-eq-${b}`).concat([`deck-${inc.key}-filter`])
+                .filter(id => Math.abs(+$(id).value) > 1).map(id => ({ id, value: 0, glide: 1 }));
             toast(`¡Te adelantaste! Ya suena el ${inc.id}: solo falta pausar el ${out.id}`, 'ok');
         }
     }
@@ -1787,8 +1826,8 @@ function tickAutoMix() {
         // you want, it's quantized); otherwise it lights one bar before the ideal moment
         const at = isStart && m.mode === 'guide' ? s.at - (plan.style === 'echo' ? 0.5 : 1) : s.at;
         const prepDone = plan.steps.every(p => !p.prep || (p.fired && !(p.pending || []).some(t => !targetReached(t))));
-        const echoFx = plan.style === 'echo' && s.at < 0 && s.actions.some(a => a.type === 'fx');
-        if (barPos < at && !((isStart || echoFx) && m.mode === 'guide' && prepDone)) continue;
+        const preStart = plan.style === 'echo' && s.at < 0; // loop + echo: lit (in order) as soon as you're ready
+        if (barPos < at && !((isStart || preStart) && m.mode === 'guide' && prepDone)) continue;
         if (s.at >= 0 && !m.started && !(isStart && m.mode === 'guide')) continue;
         fireStep(m, s);
     }
@@ -2212,11 +2251,15 @@ function padTiming(pad, at = null, custom = null) {
     return { ...base, t: toCtx(start), len: (end.t - start) / rate, where: `termina en ${end.what} (en ${barsAway} ${barsAway === 1 ? 'compás' : 'compases'})` };
 }
 
-function triggerPad(i, { at = null } = {}) {
+function triggerPad(i, { at = null, endCtx = null, atCtx = null } = {}) {
     ensureAudio();
     const pad = SAMPLER_PADS[i];
     const custom = padCustom[i];
-    const tm = padTiming(pad, at, custom);
+    let tm = padTiming(pad, at, custom);
+    const soon = audioCtx.currentTime + 0.02;
+    // The mix plan says exactly when: finish on the drop / hit on the drop
+    if (endCtx) { const start = Math.max(soon, endCtx - (pad.maxBars || 2) * 4 * tm.beatSec); tm = { ...tm, t: start, len: Math.max(0.2, endCtx - start), where: 'termina en el drop' }; }
+    if (atCtx) tm = { ...tm, t: Math.max(soon, atCtx), where: 'en el drop' };
     const t = custom && pad.sync === 'end' ? Math.max(audioCtx.currentTime + 0.02, tm.t + tm.len - custom.buffer.duration) : tm.t;
     const dur = Sampler.play(audioCtx, Mixer.sampler, pad.id, { t, len: tm.len, beatSec: tm.beatSec, key: tm.key, buffer: custom && custom.buffer });
     // The pad shows it's waiting for its moment, then lights while it sounds
@@ -2668,7 +2711,12 @@ function setupGlobal() {
         </button>`).join('');
     SAMPLER_PADS.forEach((p, i) => {
         const el = $(`pad-${i}`);
-        el.addEventListener('pointerdown', (e) => { if (e.button === 0) triggerPad(i); });
+        el.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0) return;
+            // Lit by the mix plan / the profe: it knows exactly when it should sound
+            const lit = currentTargets.find(t => t.id === `pad-${i}` && t.run);
+            if (lit) lit.run(); else triggerPad(i);
+        });
         el.addEventListener('mouseenter', () => showPadHint(i));
         el.addEventListener('contextmenu', (e) => { e.preventDefault(); resetPad(i); });
         // Drop your own sample on a pad (not into the library)

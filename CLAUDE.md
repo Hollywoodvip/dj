@@ -89,6 +89,13 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
   light after it's playing (`afterStart`). ECHO OUT (tempos > 6% apart): ECHO ON + the
   old track's LOW −26 first, then PLAY, then the crossfader. Auto-scroll to lit controls
   is only for the plan's steps (never for optional pad suggestions: the page jumped).
+- **Guided = nothing moves by itself, even at the end:** `finishAutoMix` only resets the
+  paused deck; in guided mode the crossfader and the new track's knobs stay where the user
+  left them (after an early skip they're lit as `extraTargets`). AUTO still tidies up.
+- **Transition FX/loops in the plan:** blend/filter with the drop at the end add optional
+  (`optional`, expire via `until`, never hold the plan) pad steps: SUBIDA ending on the
+  drop and IMPACTO on it, scheduled on the mix clock. Echo out starts with LOOP 4 on the
+  old track (bar-aligned), then ECHO + LOW −26, then PLAY, then the crossfader.
 - **Mix map:** while a mix is armed, `mixMap` draws it on the waveforms (green zone +
   ENTRA / BAJOS / FX / TODO AL / PAUSA on the outgoing deck, ENTRA AQUÍ on the incoming),
   the phrase line counts down to the next mark, and `#xf-plan` shows where the plan
