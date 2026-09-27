@@ -335,10 +335,14 @@ const Profe = (() => {
         // Drop coming
         if (ctx.nextDrop && ctx.barsToDrop <= 8 && ctx.barsToDrop > 0.3 && !live.trick && (ctx.section === 'intro' || ctx.section === 'breakdown')) {
             const names = ctx.barsToDrop >= 4 ? ['filter_build', 'flanger_build', 'roll_drop'] : ctx.barsToDrop >= 1 ? ['roll_drop', 'filter_build', 'trans_drop'] : ['trans_drop', 'roll_drop'];
+            const drop = ctx.nextDrop;
+            const padActs = [];
+            if (ctx.barsToDrop >= 2) padActs.push({ label: 'SUBIDA hasta el drop', icon: 'fa-arrow-trend-up', kind: 'auto', run: () => triggerPad(0) });
+            padActs.push({ label: 'IMPACTO en el drop', icon: 'fa-burst', kind: 'auto', run: () => triggerPad(1, { at: drop }) });
             add({ id: `drop-${Math.round(ctx.nextDrop)}`, p: 78, icon: 'fa-bolt', title: '¡Se viene el DROP!',
-                text: 'El drop es cuando entra toda la fuerza del tema (bajo + batería). Prepáralo con una "subida" y suéltala justo en el drop: es lo que hace saltar a la gente.',
+                text: 'El drop es cuando entra toda la fuerza del tema (bajo + batería). Prepáralo con una "subida" (efecto o el pad SUBIDA del sampler, que termina solo en el drop) y remátalo con un IMPACTO: es lo que hace saltar a la gente.',
                 when: () => `drop en ${barsText(context(live).barsToDrop)}`,
-                actions: trickActions(live, names, ctx) });
+                actions: (() => { const ta = trickActions(live, names, ctx); return [...new Set([ta[0], ta[ta.length - 1]])].filter(Boolean).concat(padActs); })() });
         }
 
         // Knobs left out of place
@@ -680,6 +684,7 @@ const Profe = (() => {
         lastAutoTrickPos[live.key] = ctx.pos;
         const names = ctx.section === 'intro' ? ['filter_build', 'roll_drop'] : ['roll_drop', 'filter_build', 'trans_drop'];
         runTrick(names[autoTrickCount++ % names.length], live);
+        if (autoTrickCount % 2 === 0) triggerPad(1, { at: ctx.nextDrop }); // and an IMPACTO on the drop, now and then
     }
 
     function setMode(m) {
@@ -698,6 +703,7 @@ const Profe = (() => {
     /* ---------------- "TOCA:" what is lit right now, by name ---------------- */
     function targetName(t) {
         if (t.id === 'crossfader') return 'Crossfader';
+        if (t.id.startsWith('pad-')) return `Pad ${SAMPLER_PADS[+t.id.slice(4)].label}`;
         const m = t.id.match(/^deck-([ab])-(.+)$/);
         if (!m) return t.id;
         const D = m[1].toUpperCase();
@@ -757,12 +763,40 @@ const Profe = (() => {
         }
     }
 
+    /* ---------------- sampler: which pad, when (lit in green) ---------------- */
+    const padUsed = new Set();
+    let padLights = [];
+    let padSig = '';
+    function onPad(i) {
+        const { live } = liveAndNext();
+        if (live.analysis) { const c = context(live); if (c.nextDrop) padUsed.add(`${i}:${Math.round(c.nextDrop)}`); }
+    }
+    function tickPadLights() {
+        let lights = [];
+        const { live } = liveAndNext();
+        if (enabled && mode !== 'auto' && !autoMix && audioCtx && live.isPlaying && live.analysis && audible(live) && !live.trick) {
+            const c = context(live);
+            const k = c.nextDrop ? Math.round(c.nextDrop) : null;
+            if (k !== null && c.barsToDrop <= 8 && c.barsToDrop >= 3 && !padUsed.has(`0:${k}`)) {
+                lights = [{ id: 'pad-0', label: 'termina en el drop · clic', run: () => triggerPad(0) }];
+            } else if (k !== null && c.barsToDrop <= 1.05 && c.barsToDrop > 0.15 && !padUsed.has(`1:${k}`)) {
+                lights = [{ id: 'pad-1', label: 'suena en el drop · clic', run: () => triggerPad(1, { at: c.nextDrop }) }];
+            }
+        }
+        // Lit pads count as done once pressed
+        lights.forEach(l => { l.check = () => padUsed.has(`${l.id.slice(4)}:${Math.round((context(liveAndNext().live).nextDrop) || 0)}`); });
+        const sig = lights.map(l => l.id).join('|');
+        padLights = lights;
+        if (sig !== padSig) { padSig = sig; applyHighlights(); }
+    }
+
     function tick() {
         deckList.forEach(d => {
             if (d.fx && d.fx.on && !fxOnSince[d.key]) fxOnSince[d.key] = performance.now();
             if (d.fx && !d.fx.on) fxOnSince[d.key] = null;
         });
         tickLevel();
+        tickPadLights();
         render();
         renderChecks();
         renderLit();
@@ -798,7 +832,8 @@ const Profe = (() => {
         init, tick, tickTricks, render,
         level: () => ({ diff: level.diff, ref: level.ref, short: level.short }), // debugging
         tips: () => collectTips().sort((x, y) => y.p - x.p).map(t => `${t.p} ${t.title}`), // debugging
-        targets: () => targets.concat(enabled ? checkLights : []), clearTargets: () => { targets = []; },
+        targets: () => targets.concat(enabled ? checkLights.concat(padLights) : []),
+        context, onPad, clearTargets: () => { targets = []; },
         mode: () => (enabled ? mode : 'off'),
         // A mix you cancelled is not re-armed for the same pair of tracks
         onCancel: () => { if (armedKey) refused.add(armedKey); armedKey = null; },

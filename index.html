@@ -127,6 +127,10 @@
             background: radial-gradient(circle at 50% 30%, #2a1f0a, #120d05);
             border: 1px solid #78350f; box-shadow: 0 3px 0 #0d0e12, inset 0 0 12px rgba(245,158,11,0.15);
         }
+        .pad.armed { border-color: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.55); }
+        .pad.pad-custom { border-color: #7c3aed; }
+        .pad.pad-drop { border-color: #22d3ee; box-shadow: 0 0 0 2px rgba(34,211,238,0.7); }
+        .pad.coach-target { border-radius: 0.5rem; }
         .pad:active, .pad.pressed { background: #b45309; box-shadow: 0 0 18px rgba(245,158,11,0.8); transform: translateY(2px); }
 
         /* Mix coach: controls you have to move right now */
@@ -330,7 +334,9 @@
                     <input id="sampler-gain" type="range" min="0" max="1" step="0.01" value="0.7" class="w-20 slim">
                 </div>
             </div>
-            <div id="sampler-pads" class="grid grid-cols-2 gap-2 content-start"></div>
+            <div id="sampler-pads" class="grid grid-cols-4 gap-2 content-start"></div>
+            <div id="sampler-hint" class="text-[11px] text-gray-300 leading-snug mt-2 min-h-[2.5rem]"><b class="text-amber-300">Pasa el mouse por un pad</b> y te digo cuándo usarlo. Todos caen solos a tiempo con el tema que suena.</div>
+            <div class="text-[10px] text-gray-500 mt-1"><i class="fa-solid fa-file-audio mr-1"></i>Arrastra tu propio .wav/.mp3 a un pad para cambiarlo · clic derecho = volver al original</div>
         </div>
     </section>
 

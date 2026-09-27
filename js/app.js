@@ -1896,10 +1896,10 @@ const KEYMAP = [
     ['KeyT', null, 'guide', 'guide-btn', 'Mezcla GUIADA (tú mueves lo que se ilumina)'],
     ['Escape', null, 'cancel', null, 'Cancelar auto mix / cerrar ventanas'],
     ['KeyG', null, 'prep', 'prep-btn', 'Preparar el siguiente deck'],
-    ['Digit4', null, 'pad0', 'pad-0', 'Sampler: Air horn'],
-    ['Digit5', null, 'pad1', 'pad-1', 'Sampler: Siren'],
-    ['Digit6', null, 'pad2', 'pad-2', 'Sampler: Riser'],
-    ['Digit7', null, 'pad3', 'pad-3', 'Sampler: Laser'],
+    ['Digit4', null, 'pad0', 'pad-0', 'Sampler: SUBIDA (Shift = STAB)'],
+    ['Digit5', null, 'pad1', 'pad-1', 'Sampler: IMPACTO (Shift = BAJADA)'],
+    ['Digit6', null, 'pad2', 'pad-2', 'Sampler: REDOBLE (Shift = SUB DROP)'],
+    ['Digit7', null, 'pad3', 'pad-3', 'Sampler: REVERSO (Shift = AIR HORN)'],
     ['KeyH', null, 'help', null, 'Mostrar/ocultar esta ayuda'],
     ['KeyN', null, 'profeNext', null, 'DJ PROFE: otro consejo'],
     ['Space', null, 'applyTargets', null, 'Ajustar solo todo lo que está iluminado en verde'],
@@ -1936,6 +1936,15 @@ function renderKeyBadges() {
         const badge = document.createElement('span');
         badge.className = 'kbd';
         badge.textContent = keyLabel(code);
+        el.appendChild(badge);
+    });
+    // Second row of pads: Shift + 4..7
+    [4, 5, 6, 7].forEach(i => {
+        const el = $(`pad-${i}`);
+        if (!el) return;
+        const badge = document.createElement('span');
+        badge.className = 'kbd';
+        badge.textContent = `⇧${i}`;
         el.appendChild(badge);
     });
 }
@@ -2013,7 +2022,7 @@ function runAction(m, phase, shift) {
             else cancelAutoMix();
             break;
         case 'prep': prepareNext(); break;
-        case 'pad0': case 'pad1': case 'pad2': case 'pad3': triggerPad(+action.slice(3)); break;
+        case 'pad0': case 'pad1': case 'pad2': case 'pad3': triggerPad(+action.slice(3) + (shift ? 4 : 0)); break;
         case 'help': $('help-modal').classList.toggle('hidden'); break;
         case 'profeNext': $('profe-next').click(); break;
         case 'applyTargets': applyAllTargets(); break;
@@ -2064,12 +2073,115 @@ function setupKeyboard() {
 /* ==========================================================================
    SAMPLER
    ========================================================================== */
-function triggerPad(i) {
+// Your own sounds on the pads (drag a file onto a pad), saved in the browser
+const padCustom = SAMPLER_PADS.map(() => null); // { name, buffer }
+
+// When a pad should sound so it lands on the music: a beat, the next "1", or (the ones that
+// build up) finishing exactly on the next drop / 8-bar phrase. `at` = a track position to hit.
+function padTiming(pad, at = null, custom = null) {
+    const { live } = liveAndNext();
+    const now = audioCtx.currentTime + 0.02;
+    if (!live.isPlaying || !live.analysis) {
+        const beatSec = 0.47;
+        const len = pad.maxBars ? Math.min(pad.maxBars, 2) * 4 * beatSec : Sampler.defaultLen(pad, beatSec);
+        return { t: now, len, beatSec, key: null, where: '' };
+    }
+    const pos = live.getCurrentTime(), rate = live.playbackRate, beat = live.beatSec, bar = 4 * beat;
+    const toCtx = (p) => Math.max(now, audioCtx.currentTime + (p - pos) / rate);
+    const base = { beatSec: beat / rate, key: live.analysis.key };
+    const nextBeat = live.firstBeat + Math.ceil((pos + 0.03 * rate - live.firstBeat) / beat) * beat;
+    if (at !== null) return { ...base, t: toCtx(at), len: Sampler.defaultLen(pad, base.beatSec), where: 'en el drop' };
+    if (pad.sync === 'beat' || (custom && pad.sync !== 'end')) {
+        return { ...base, t: toCtx(pad.sync === 'bar' ? live.nextBarAfter(pos + 0.03 * rate) : nextBeat), len: Sampler.defaultLen(pad, base.beatSec), where: pad.sync === 'bar' ? 'en el próximo 1' : 'en el próximo beat' };
+    }
+    if (pad.sync === 'bar') {
+        const t = live.nextBarAfter(pos + 0.03 * rate);
+        return { ...base, t: toCtx(t), len: Sampler.defaultLen(pad, base.beatSec), where: 'en el próximo 1' };
+    }
+    // 'end': finish on the next drop or phrase that is far enough away
+    const ctx = Profe.context(live);
+    const ps = live.analysis.phraseStart ?? live.downbeat;
+    const ends = [];
+    if (ctx.nextDrop) ends.push({ t: ctx.nextDrop, what: 'el drop' });
+    for (let k = 1; k <= 3; k++) ends.push({ t: ps + (Math.floor((pos - ps) / (8 * bar)) + k) * 8 * bar, what: 'la próxima frase' });
+    const end = ends.filter(e => (e.t - pos) / bar >= pad.minBars - 1e-3).sort((x, y) => x.t - y.t)[0];
+    const len = custom ? custom.buffer.duration * rate : pad.maxBars * bar;
+    const start = Math.max(end.t - len, nextBeat);
+    const barsAway = Math.ceil((end.t - pos) / bar - 0.05);
+    return { ...base, t: toCtx(start), len: (end.t - start) / rate, where: `termina en ${end.what} (en ${barsAway} ${barsAway === 1 ? 'compás' : 'compases'})` };
+}
+
+function triggerPad(i, { at = null } = {}) {
     ensureAudio();
     const pad = SAMPLER_PADS[i];
-    const { live } = liveAndNext();
-    const beatSec = live.analysis ? live.beatSec / live.pitch : 0.47;
-    Sampler.play(audioCtx, Mixer.sampler, pad.id, beatSec);
+    const custom = padCustom[i];
+    const tm = padTiming(pad, at, custom);
+    const t = custom && pad.sync === 'end' ? Math.max(audioCtx.currentTime + 0.02, tm.t + tm.len - custom.buffer.duration) : tm.t;
+    const dur = Sampler.play(audioCtx, Mixer.sampler, pad.id, { t, len: tm.len, beatSec: tm.beatSec, key: tm.key, buffer: custom && custom.buffer });
+    // The pad shows it's waiting for its moment, then lights while it sounds
+    const el = $(`pad-${i}`);
+    const wait = Math.max(0, (t - audioCtx.currentTime) * 1000);
+    clearTimeout(el._t1); clearTimeout(el._t2);
+    el.classList.toggle('armed', wait > 60);
+    el._t1 = setTimeout(() => { el.classList.remove('armed'); el.classList.add('pressed'); }, wait);
+    el._t2 = setTimeout(() => el.classList.remove('pressed'), wait + Math.min(dur, 4) * 1000);
+    showPadHint(i, tm.where);
+    if (typeof Profe !== 'undefined') Profe.onPad(i);
+}
+
+function showPadHint(i, where = '') {
+    const pad = SAMPLER_PADS[i];
+    const c = padCustom[i];
+    $('sampler-hint').innerHTML = `<b class="text-amber-300">${pad.label}${c ? ' (tu sonido)' : ''}${where ? ` · ${where}` : ''}:</b> <span></span>`;
+    $('sampler-hint').querySelector('span').textContent = c ? `"${c.name}". Clic derecho vuelve al sonido original.` : pad.when;
+}
+
+function renderPads() {
+    SAMPLER_PADS.forEach((p, i) => {
+        const c = padCustom[i];
+        const el = $(`pad-${i}`);
+        el.querySelector('.pad-label').textContent = c ? c.name.replace(/\.[^.]+$/, '').slice(0, 12).toUpperCase() : p.label;
+        el.classList.toggle('pad-custom', !!c);
+        el.title = c ? `Tu sonido: ${c.name} (clic derecho = volver a ${p.label})` : `${p.when} Arrastra aquí un .wav/.mp3 para usar tu propio sonido.`;
+    });
+}
+
+async function setPadSample(i, file) {
+    try {
+        ensureAudio();
+        if (file.size > 15e6) { toast('Ese archivo es muy grande para un pad (máx. 15 MB)', 'warn'); return; }
+        const bytes = await file.arrayBuffer();
+        const buffer = await audioCtx.decodeAudioData(bytes.slice(0));
+        padCustom[i] = { name: file.name, buffer };
+        renderPads();
+        showPadHint(i);
+        toast(`Pad ${SAMPLER_PADS[i].label} → ${file.name}`, 'ok');
+        await Store.pads.put({ pad: i, name: file.name, bytes });
+    } catch (e) {
+        console.error(e);
+        toast(`No pude leer "${file.name}" como audio`, 'warn');
+    }
+}
+
+async function resetPad(i) {
+    if (!padCustom[i]) return;
+    padCustom[i] = null;
+    renderPads();
+    showPadHint(i);
+    try { await Store.pads.remove(i); } catch (e) {}
+}
+
+async function loadPadSamples() {
+    try {
+        const list = await Store.pads.all();
+        if (!list.length) return;
+        // Decoded without starting the audio (that needs a click); buffers work in any context
+        const dec = new OfflineAudioContext(2, 1, 44100);
+        for (const r of list) {
+            try { padCustom[r.pad] = { name: r.name, buffer: await dec.decodeAudioData(r.bytes.slice(0)) }; } catch (e) {}
+        }
+        renderPads();
+    } catch (e) { /* no pads store yet */ }
 }
 
 /* ==========================================================================
@@ -2439,10 +2551,25 @@ function setupGlobal() {
 
     // Sampler pads
     $('sampler-pads').innerHTML = SAMPLER_PADS.map((p, i) => `
-        <button id="pad-${i}" class="pad rounded-lg py-3 font-black text-xs text-amber-200 flex flex-col items-center justify-center gap-1">
-            <i class="fa-solid ${p.icon} text-lg"></i>${p.label}
+        <button id="pad-${i}" class="pad rounded-lg py-2 font-black text-[11px] text-amber-200 flex flex-col items-center justify-center gap-1">
+            <i class="fa-solid ${p.icon} text-base"></i><span class="pad-label">${p.label}</span>
         </button>`).join('');
-    SAMPLER_PADS.forEach((p, i) => $(`pad-${i}`).addEventListener('pointerdown', () => triggerPad(i)));
+    SAMPLER_PADS.forEach((p, i) => {
+        const el = $(`pad-${i}`);
+        el.addEventListener('pointerdown', (e) => { if (e.button === 0) triggerPad(i); });
+        el.addEventListener('mouseenter', () => showPadHint(i));
+        el.addEventListener('contextmenu', (e) => { e.preventDefault(); resetPad(i); });
+        // Drop your own sample on a pad (not into the library)
+        el.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); el.classList.add('pad-drop'); });
+        el.addEventListener('dragleave', () => el.classList.remove('pad-drop'));
+        el.addEventListener('drop', (e) => {
+            e.preventDefault(); e.stopPropagation();
+            el.classList.remove('pad-drop');
+            const f = e.dataTransfer.files && e.dataTransfer.files[0];
+            if (f) setPadSample(i, f);
+        });
+    });
+    renderPads();
 
     // Help + key badges
     $('help-btn').addEventListener('click', () => $('help-modal').classList.remove('hidden'));
@@ -2654,5 +2781,6 @@ window.addEventListener('DOMContentLoaded', () => {
     checkServer();
     Profe.init();
     loadLibraryFromStore();
+    loadPadSamples();
     requestAnimationFrame(frame);
 });

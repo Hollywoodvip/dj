@@ -25,7 +25,10 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
 - `js/analysis.js` — `Analysis.analyzeTrack(buffer)`: BPM + beat grid (`firstBeat`,
   `downbeat`, `beatSec`), key (Camelot), loudness, energy per bar, `mixIn`,
   `introEnd` (= first drop), `breakdowns`, `outroStart`, `mixOut`, `mixBars`.
-- `js/fx.js` — `FXUnit` per deck (echo, reverb, flanger, phaser, trans, roll), `Sampler`.
+- `js/fx.js` — `FXUnit` per deck (echo, reverb, flanger, phaser, trans, roll), `Sampler`
+  (8 synthesized pads in `SAMPLER_PADS`, each with `sync` 'end'/'bar'/'beat' and a `when`
+  text; `padTiming` in app.js puts them on the playing track's grid; own samples per pad
+  in `Store.pads`). The profe lights SUBIDA 3–8 bars before a drop and IMPACTO right before it.
 - `js/engine.js` — `Deck` (transport, native loops, roll with slip, brake, spinback,
   auto gain `trim`), mixer bus, demo track generator.
 - `js/app.js` — UI templates, knobs, waveforms, sync, **mix coach**

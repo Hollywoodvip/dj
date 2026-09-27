@@ -36,7 +36,7 @@ and BPM fixes survive reloads; pasting a YouTube link you already have doesn't
 download it again. **REC** records the whole mix (effects and sampler too) with a
 tracklist; download it as-is or as a 320 kbps MP3 (needs ffmpeg).
 
-**Also:** sampler pads (air horn, siren, riser, laser), library with match stars,
+**Also:** 8 sampler pads that land on the beat by themselves (riser and snare roll end exactly on the drop; impact, reverse cymbal, downlifter, sub drop, stab in the track's key, air horn), and you can drag your own .wav/.mp3 onto any pad (saved in the browser), library with match stars,
 keyboard shortcuts for everything (press **H** in the app).
 
 ## Run it
@@ -93,4 +93,4 @@ Only download content you own or have permission to use.
 | V | M | Brake (Shift = spinback) |
 
 Global: ← → crossfader · ↓ center · Enter = AUTO MIX · Shift+Enter = MIX NOW · T = guided mix ·
-G = prepare next deck · 4–7 = sampler · Esc = cancel · H = help.
+G = prepare next deck · 4–7 = sampler (Shift+4–7 = second row) · Esc = cancel · H = help.

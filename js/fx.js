@@ -255,18 +255,217 @@ class FXUnit {
     }
 }
 
-/* ---------------- Sampler pads (synthesized live, no files needed) ---------------- */
+/* ---------------- Sampler pads (synthesized live, no files needed) ----------------
+   Club "transition FX": each pad knows WHEN it sounds good and lands on the grid of the
+   playing track by itself (`sync`): 'end' = finishes exactly on the next drop / phrase,
+   'bar' = hits on the next "1", 'beat' = on the next beat. Any pad can be replaced by
+   your own sound (drag a .wav/.mp3 onto it). */
 const SAMPLER_PADS = [
-    { id: 'horn', label: 'AIR HORN', icon: 'fa-bullhorn' },
-    { id: 'siren', label: 'SIREN', icon: 'fa-bell' },
-    { id: 'riser', label: 'RISER', icon: 'fa-arrow-trend-up' },
-    { id: 'laser', label: 'LASER', icon: 'fa-bolt' },
+    { id: 'riser', label: 'SUBIDA', icon: 'fa-arrow-trend-up', sync: 'end', minBars: 2, maxBars: 8,
+      when: 'Ruido que sube y termina justo en el drop (o en la próxima frase). Tócala 4–8 compases antes de un drop: la gente siente que viene algo.' },
+    { id: 'impact', label: 'IMPACTO', icon: 'fa-burst', sync: 'bar',
+      when: 'Golpe grave con cola, suena en el próximo "1". Úsalo en el drop o en el primer beat del tema nuevo después de una mezcla.' },
+    { id: 'snareroll', label: 'REDOBLE', icon: 'fa-drum', sync: 'end', minBars: 1, maxBars: 2,
+      when: 'Redoble que se acelera en los 2 últimos compases antes del drop o de la frase. Clásico de la subida (tech house, EDM, reggaetón de club).' },
+    { id: 'reverse', label: 'REVERSO', icon: 'fa-backward', sync: 'end', minBars: 0.75, maxBars: 1,
+      when: 'Platillo al revés: crece durante 1 compás y termina en el "1". Perfecto justo antes de un drop o al entrar el tema nuevo.' },
+    { id: 'downlifter', label: 'BAJADA', icon: 'fa-arrow-trend-down', sync: 'bar',
+      when: 'Ruido que baja durante 2 compases. Úsalo después de un drop o al sacar un tema (junto al ECHO OUT).' },
+    { id: 'subdrop', label: 'SUB DROP', icon: 'fa-arrow-down', sync: 'bar',
+      when: 'Bajo profundo que cae, en el próximo "1". En el drop o cuando entra el bajo del tema nuevo. Con parlantes grandes se siente en el pecho.' },
+    { id: 'stab', label: 'STAB', icon: 'fa-music', sync: 'beat',
+      when: 'Acorde corto de techno, en el tono del tema que suena (no desafina). Tócalo en los huecos o en los últimos beats de una frase, pocas veces.' },
+    { id: 'horn', label: 'AIR HORN', icon: 'fa-bullhorn', sync: 'beat',
+      when: 'La bocina de dancehall/reggaetón. Una vez en el drop o cuando la gente ya está arriba; si la usas mucho aburre.' },
 ];
 
-const Sampler = {
-    play(ctx, dest, id, beatSec = 0.47) {
-        const t = ctx.currentTime + 0.01;
-        if (id === 'horn') {
+const Sampler = (() => {
+    const NOTES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+    let verb = null;
+
+    function noise(ctx, len) {
+        const b = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * len)), ctx.sampleRate);
+        const d = b.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        return b;
+    }
+    function noiseSrc(ctx, len, t) {
+        const s = ctx.createBufferSource();
+        s.buffer = noise(ctx, len + 0.1);
+        s.start(t);
+        s.stop(t + len + 0.1);
+        return s;
+    }
+    // Shared hall reverb for the tails (impacts, stabs)
+    function reverb(ctx, dest) {
+        if (!verb || verb.ctx !== ctx) {
+            const len = 2.8, sr = ctx.sampleRate;
+            const ir = ctx.createBuffer(2, Math.floor(sr * len), sr);
+            for (let c = 0; c < 2; c++) {
+                const d = ir.getChannelData(c);
+                for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3);
+            }
+            const conv = ctx.createConvolver();
+            conv.buffer = ir;
+            const out = ctx.createGain();
+            out.gain.value = 0.35;
+            conv.connect(out);
+            verb = { ctx, input: conv, out, dest: null };
+        }
+        if (verb.dest !== dest) { verb.out.disconnect(); verb.out.connect(dest); verb.dest = dest; }
+        return verb.input;
+    }
+    const gainNode = (ctx, v = 1) => { const g = ctx.createGain(); g.gain.value = v; return g; };
+
+    const SOUNDS = {
+        riser(ctx, dest, t, len) {
+            const out = gainNode(ctx, 0);
+            out.gain.setValueAtTime(0.02, t);
+            out.gain.exponentialRampToValueAtTime(0.32, t + len);
+            out.gain.setValueAtTime(0, t + len);
+            out.connect(dest);
+            // Noise sweeping up
+            const bp = ctx.createBiquadFilter();
+            bp.type = 'bandpass'; bp.Q.value = 1.4;
+            bp.frequency.setValueAtTime(350, t);
+            bp.frequency.exponentialRampToValueAtTime(11000, t + len);
+            noiseSrc(ctx, len, t).connect(bp); bp.connect(out);
+            // Detuned saws gliding up an octave and a half, through an opening filter
+            const lp = ctx.createBiquadFilter();
+            lp.type = 'lowpass'; lp.Q.value = 6;
+            lp.frequency.setValueAtTime(400, t);
+            lp.frequency.exponentialRampToValueAtTime(7000, t + len);
+            const sg = gainNode(ctx, 0.07);
+            lp.connect(sg); sg.connect(out);
+            [-12, 0, 11].forEach(det => {
+                const o = ctx.createOscillator();
+                o.type = 'sawtooth'; o.detune.value = det;
+                o.frequency.setValueAtTime(130, t);
+                o.frequency.exponentialRampToValueAtTime(660, t + len);
+                o.connect(lp); o.start(t); o.stop(t + len);
+            });
+            return len;
+        },
+        impact(ctx, dest, t) {
+            const sub = ctx.createOscillator();
+            sub.frequency.setValueAtTime(140, t);
+            sub.frequency.exponentialRampToValueAtTime(38, t + 0.9);
+            const sg = gainNode(ctx, 0);
+            sg.gain.setValueAtTime(0.7, t);
+            sg.gain.exponentialRampToValueAtTime(0.001, t + 1.6);
+            sub.connect(sg); sg.connect(dest);
+            sub.start(t); sub.stop(t + 1.7);
+            const lp = ctx.createBiquadFilter();
+            lp.type = 'lowpass';
+            lp.frequency.setValueAtTime(6000, t);
+            lp.frequency.exponentialRampToValueAtTime(300, t + 0.8);
+            const ng = gainNode(ctx, 0);
+            ng.gain.setValueAtTime(0.45, t);
+            ng.gain.exponentialRampToValueAtTime(0.001, t + 0.9);
+            noiseSrc(ctx, 1, t).connect(lp); lp.connect(ng);
+            ng.connect(dest); ng.connect(reverb(ctx, dest));
+            return 2.5;
+        },
+        snareroll(ctx, dest, t, len, beatSec) {
+            // Quarters, then 8ths, 16ths, 32nds: faster and louder into the "1"
+            const beats = Math.max(1, Math.round(len / beatSec));
+            const hits = [];
+            const seg = beats / 4;
+            [1, 0.5, 0.25, 0.125].forEach((step, i) => {
+                for (let b = i * seg; b < (i + 1) * seg - 1e-6; b += step) hits.push(b);
+            });
+            const hp = ctx.createBiquadFilter();
+            hp.type = 'highpass';
+            hp.frequency.setValueAtTime(200, t);
+            hp.frequency.exponentialRampToValueAtTime(1500, t + len);
+            hp.connect(dest);
+            hits.forEach(b => {
+                const at = t + b * beatSec;
+                const vol = 0.08 + 0.3 * (b / beats);
+                const g = gainNode(ctx, 0);
+                g.gain.setValueAtTime(vol, at);
+                g.gain.exponentialRampToValueAtTime(0.001, at + 0.13);
+                const bp = ctx.createBiquadFilter();
+                bp.type = 'bandpass'; bp.frequency.value = 2200; bp.Q.value = 0.8;
+                noiseSrc(ctx, 0.15, at).connect(bp); bp.connect(g);
+                const body = ctx.createOscillator();
+                body.type = 'triangle';
+                body.frequency.setValueAtTime(240, at);
+                body.frequency.exponentialRampToValueAtTime(160, at + 0.06);
+                const bg = gainNode(ctx, 0);
+                bg.gain.setValueAtTime(vol * 0.8, at);
+                bg.gain.exponentialRampToValueAtTime(0.001, at + 0.08);
+                body.connect(bg); bg.connect(g);
+                body.start(at); body.stop(at + 0.1);
+                g.connect(hp);
+            });
+            return len;
+        },
+        reverse(ctx, dest, t, len) {
+            const hp = ctx.createBiquadFilter();
+            hp.type = 'highpass'; hp.frequency.value = 4000;
+            const pk = ctx.createBiquadFilter();
+            pk.type = 'peaking'; pk.frequency.value = 9000; pk.gain.value = 6;
+            const g = gainNode(ctx, 0);
+            g.gain.setValueAtTime(0.0001, t);
+            g.gain.exponentialRampToValueAtTime(0.4, t + len - 0.01);
+            g.gain.setValueAtTime(0, t + len);
+            noiseSrc(ctx, len, t).connect(hp); hp.connect(pk); pk.connect(g); g.connect(dest);
+            return len;
+        },
+        downlifter(ctx, dest, t, len) {
+            const bp = ctx.createBiquadFilter();
+            bp.type = 'bandpass'; bp.Q.value = 1.2;
+            bp.frequency.setValueAtTime(9000, t);
+            bp.frequency.exponentialRampToValueAtTime(250, t + len);
+            const g = gainNode(ctx, 0);
+            g.gain.setValueAtTime(0.35, t);
+            g.gain.exponentialRampToValueAtTime(0.001, t + len);
+            noiseSrc(ctx, len, t).connect(bp); bp.connect(g); g.connect(dest);
+            return len;
+        },
+        subdrop(ctx, dest, t) {
+            const o = ctx.createOscillator();
+            o.frequency.setValueAtTime(95, t);
+            o.frequency.exponentialRampToValueAtTime(28, t + 1.8);
+            const sh = ctx.createWaveShaper();
+            const curve = new Float32Array(1024);
+            for (let i = 0; i < 1024; i++) curve[i] = Math.tanh(2.2 * (i / 512 - 1));
+            sh.curve = curve;
+            const g = gainNode(ctx, 0);
+            g.gain.setValueAtTime(0.55, t);
+            g.gain.setValueAtTime(0.55, t + 0.4);
+            g.gain.exponentialRampToValueAtTime(0.001, t + 2);
+            o.connect(sh); sh.connect(g); g.connect(dest);
+            o.start(t); o.stop(t + 2.05);
+            return 2;
+        },
+        stab(ctx, dest, t, len, beatSec, key) {
+            // Minor chord on the key of the track that's playing (so it's never out of tune)
+            let root = 57; // A
+            if (key && key.name) {
+                const n = NOTES.indexOf(key.name.replace(/m$/, ''));
+                if (n >= 0) root = 48 + n + (n < 5 ? 12 : 0);
+            }
+            const minor = !key || /m$/.test(key.name);
+            const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+            const lp = ctx.createBiquadFilter();
+            lp.type = 'lowpass'; lp.Q.value = 4;
+            lp.frequency.setValueAtTime(5000, t);
+            lp.frequency.exponentialRampToValueAtTime(500, t + 0.3);
+            const g = gainNode(ctx, 0);
+            g.gain.setValueAtTime(0.16, t);
+            g.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+            lp.connect(g); g.connect(dest); g.connect(reverb(ctx, dest));
+            [0, minor ? 3 : 4, 7, 12].forEach(iv => [-8, 8].forEach(det => {
+                const o = ctx.createOscillator();
+                o.type = 'sawtooth'; o.detune.value = det;
+                o.frequency.value = hz(root + iv);
+                o.connect(lp); o.start(t); o.stop(t + 0.5);
+            }));
+            return 1.5;
+        },
+        horn(ctx, dest, t) {
             // Dancehall air horn: short-short-long blasts
             [[0, 0.13], [0.2, 0.13], [0.4, 0.75]].forEach(([at, len]) => {
                 const env = ctx.createGain();
@@ -275,9 +474,7 @@ const Sampler = {
                 for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(3 * x); }
                 shaper.curve = curve;
                 const tone = ctx.createBiquadFilter();
-                tone.type = 'peaking';
-                tone.frequency.value = 1400;
-                tone.gain.value = 8;
+                tone.type = 'peaking'; tone.frequency.value = 1400; tone.gain.value = 8;
                 [1, 1.5, 2.01].forEach(mult => {
                     const osc = ctx.createOscillator();
                     osc.type = 'sawtooth';
@@ -287,82 +484,30 @@ const Sampler = {
                     osc.start(t + at);
                     osc.stop(t + at + len + 0.05);
                 });
-                shaper.connect(tone);
-                tone.connect(env);
-                env.connect(dest);
+                shaper.connect(tone); tone.connect(env); env.connect(dest);
                 env.gain.setValueAtTime(0, t + at);
                 env.gain.linearRampToValueAtTime(0.22, t + at + 0.02);
                 env.gain.setValueAtTime(0.22, t + at + len - 0.04);
                 env.gain.linearRampToValueAtTime(0, t + at + len);
             });
-        } else if (id === 'siren') {
-            // Dub siren: LFO-swept square wave
-            const len = beatSec * 8;
-            const osc = ctx.createOscillator();
-            osc.type = 'square';
-            osc.frequency.value = 700;
-            const lfo = ctx.createOscillator();
-            lfo.type = 'triangle';
-            lfo.frequency.value = 1 / beatSec;
-            const lfoGain = ctx.createGain();
-            lfoGain.gain.value = 350;
-            lfo.connect(lfoGain);
-            lfoGain.connect(osc.frequency);
-            const lp = ctx.createBiquadFilter();
-            lp.type = 'lowpass';
-            lp.frequency.value = 2500;
-            const env = ctx.createGain();
-            env.gain.setValueAtTime(0, t);
-            env.gain.linearRampToValueAtTime(0.12, t + 0.05);
-            env.gain.setValueAtTime(0.12, t + len - 0.3);
-            env.gain.linearRampToValueAtTime(0, t + len);
-            osc.connect(lp);
-            lp.connect(env);
-            env.connect(dest);
-            osc.start(t); lfo.start(t);
-            osc.stop(t + len); lfo.stop(t + len);
-        } else if (id === 'riser') {
-            // 8-beat white-noise sweep + rising tone, lands on the beat
-            const len = beatSec * 8;
-            const noise = ctx.createBuffer(1, Math.floor(ctx.sampleRate * len), ctx.sampleRate);
-            const d = noise.getChannelData(0);
-            for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-            const src = ctx.createBufferSource();
-            src.buffer = noise;
-            const bp = ctx.createBiquadFilter();
-            bp.type = 'bandpass';
-            bp.Q.value = 2;
-            bp.frequency.setValueAtTime(300, t);
-            bp.frequency.exponentialRampToValueAtTime(9000, t + len);
-            const env = ctx.createGain();
-            env.gain.setValueAtTime(0.001, t);
-            env.gain.exponentialRampToValueAtTime(0.35, t + len);
-            env.gain.linearRampToValueAtTime(0, t + len + 0.02);
-            const osc = ctx.createOscillator();
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(110, t);
-            osc.frequency.exponentialRampToValueAtTime(880, t + len);
-            const oscGain = ctx.createGain();
-            oscGain.gain.value = 0.15;
-            src.connect(bp); bp.connect(env);
-            osc.connect(oscGain); oscGain.connect(env);
-            env.connect(dest);
-            src.start(t); osc.start(t);
-            src.stop(t + len + 0.05); osc.stop(t + len + 0.05);
-        } else if (id === 'laser') {
-            [0, 0.12, 0.24].forEach(at => {
-                const osc = ctx.createOscillator();
-                osc.type = 'square';
-                osc.frequency.setValueAtTime(2400, t + at);
-                osc.frequency.exponentialRampToValueAtTime(120, t + at + 0.18);
-                const env = ctx.createGain();
-                env.gain.setValueAtTime(0.14, t + at);
-                env.gain.exponentialRampToValueAtTime(0.001, t + at + 0.2);
-                osc.connect(env);
-                env.connect(dest);
-                osc.start(t + at);
-                osc.stop(t + at + 0.22);
-            });
+            return 1.2;
+        },
+    };
+
+    // Plays a pad at audio time `t`; `len` = its length for the ones that build up.
+    // `buffer` = your own sample for this pad. Returns how long it sounds (seconds).
+    function play(ctx, dest, id, { t = ctx.currentTime + 0.01, len = 4, beatSec = 0.47, key = null, buffer = null } = {}) {
+        if (buffer) {
+            const s = ctx.createBufferSource();
+            s.buffer = buffer;
+            s.connect(dest);
+            s.start(t);
+            return buffer.duration;
         }
-    },
-};
+        return SOUNDS[id](ctx, dest, t, len, beatSec, key);
+    }
+    // Length of a sound that doesn't build up (so an 'end' pad can finish on the grid)
+    const defaultLen = (pad, beatSec) => (pad.id === 'downlifter' ? 8 * beatSec : 4 * beatSec);
+
+    return { play, defaultLen };
+})();

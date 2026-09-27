@@ -4,14 +4,18 @@
    ========================================================================== */
 const Store = (() => {
     const DB_NAME = 'webdj';
-    const DB_VERSION = 1;
+    const DB_VERSION = 2; // 2: + 'pads' (your own sounds on the sampler pads)
     let dbPromise = null;
 
     function db() {
         if (!dbPromise) {
             dbPromise = new Promise((resolve, reject) => {
                 const req = indexedDB.open(DB_NAME, DB_VERSION);
-                req.onupgradeneeded = () => req.result.createObjectStore('tracks', { keyPath: 'id' });
+                req.onupgradeneeded = () => {
+                    const d = req.result;
+                    if (!d.objectStoreNames.contains('tracks')) d.createObjectStore('tracks', { keyPath: 'id' });
+                    if (!d.objectStoreNames.contains('pads')) d.createObjectStore('pads', { keyPath: 'pad' });
+                };
                 req.onsuccess = () => resolve(req.result);
                 req.onerror = () => reject(req.error);
             });
@@ -19,11 +23,11 @@ const Store = (() => {
         return dbPromise;
     }
 
-    async function run(mode, fn) {
+    async function run(mode, fn, name = 'tracks') {
         const d = await db();
         return new Promise((resolve, reject) => {
-            const tx = d.transaction('tracks', mode);
-            const req = fn(tx.objectStore('tracks'));
+            const tx = d.transaction(name, mode);
+            const req = fn(tx.objectStore(name));
             tx.oncomplete = () => resolve(req ? req.result : undefined);
             tx.onerror = () => reject(tx.error);
             tx.onabort = () => reject(tx.error);
@@ -40,6 +44,12 @@ const Store = (() => {
         },
         remove: (id) => run('readwrite', s => s.delete(id)),
         clear: () => run('readwrite', s => s.clear()),
+        // Your own samples: { pad, name, bytes }
+        pads: {
+            all: () => run('readonly', s => s.getAll(), 'pads'),
+            put: (record) => run('readwrite', s => s.put(record), 'pads'),
+            remove: (pad) => run('readwrite', s => s.delete(pad), 'pads'),
+        },
         usage: async () => {
             try { return navigator.storage && navigator.storage.estimate ? (await navigator.storage.estimate()).usage : null; } catch (e) { return null; }
         },
