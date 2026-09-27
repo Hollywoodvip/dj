@@ -295,6 +295,8 @@ function setupKnob(container) {
     let drag = null;
     container.addEventListener('pointerdown', (e) => {
         ensureAudio();
+        const lit = litTargetFor(container);
+        if (lit) { glideControl(lit.id, lit.value, 350); drag = null; setTimeout(flash, 360); return; }
         container.setPointerCapture(e.pointerId);
         drag = { x: e.clientX, y: e.clientY, v: +input.value };
         flash();
@@ -1082,7 +1084,7 @@ function fireStep(m, step) {
             d.fx.setBeats(a.beats);
             setControl(`deck-${a.deck}-fx-level`, a.level);
             if (m.mode === 'auto') d.fx.setOn(true);
-            else step.pending.push({ id: `deck-${a.deck}-fx-on`, fx: d });
+            else step.pending.push({ id: `deck-${a.deck}-fx-on`, fx: d.fx });
             refreshFxUI(d);
         } else if (a.type === 'stopOut') {
             if (m.out.isPlaying) m.out.pause();
@@ -1128,14 +1130,34 @@ function setCoachTargets(targets) {
 // Lights up what the mix coach (guided mix) and the DJ PROFE want you to touch
 function applyHighlights() {
     const all = mixTargets.concat(typeof Profe !== 'undefined' ? Profe.targets() : []);
-    coachEls.forEach(el => { el.classList.remove('coach-target'); delete el.dataset.target; });
+    coachEls.forEach(el => { el.classList.remove('coach-target'); delete el.dataset.target; delete el.dataset.targetValue; });
     coachEls = all.map(t => {
         const input = $(t.id);
         const el = input.closest('.knob-container') || (input.tagName === 'INPUT' ? input.parentElement : input);
         el.classList.add('coach-target');
-        el.dataset.target = formatTarget(t);
+        el.dataset.target = formatTarget(t) + (t.value !== undefined ? ' · clic' : '');
+        if (t.value !== undefined) el.dataset.targetValue = t.value;
         return el;
     });
+    currentTargets = all;
+}
+let currentTargets = [];
+
+// One click on a lit-up control (or Space for all of them) moves it to its target by itself
+function applyTarget(t) {
+    if (t.fx) { if (!t.fx.on) { t.fx.setOn(true); refreshFxUI(t.fx.deck); } return; }
+    if (t.value !== undefined) glideControl(t.id, t.value, 350);
+}
+function applyAllTargets() {
+    ensureAudio();
+    if (!currentTargets.length) { toast('No hay nada que mover ahora mismo', 'info'); return; }
+    currentTargets.forEach(applyTarget);
+}
+function litTargetFor(el) {
+    const host = el.closest('.coach-target');
+    if (!host || host.dataset.targetValue === undefined) return null;
+    const input = host.querySelector('input[type=range]') || el;
+    return { id: input.id, value: +host.dataset.targetValue };
 }
 
 function finishAutoMix() {
@@ -1269,7 +1291,7 @@ function renderPlan(plan, m, live, next) {
             · el <b>${next.id}</b> arranca desde <b class="text-emerald-400">${formatTime(plan.inStart, false)}</b>${plan.useDrop ? ' (su drop)' : ' (su IN)'}
             ${pct !== null ? `· tempo del ${next.id} ${pct >= 0 ? '+' : ''}${pct}%` : '· sin sync'}
         </div>
-        ${current.length ? `<div class="mb-2 p-2 rounded border border-amber-500/50 bg-amber-950/40 text-amber-200 text-xs font-bold animate-pulse"><i class="fa-solid fa-hand-point-right mr-1"></i>AHORA: ${current[0].text} <span class="font-normal text-amber-300/80">(lo que tienes que mover está iluminado en verde)</span></div>` : ''}
+        ${current.length ? `<div class="mb-2 p-2 rounded border border-amber-500/50 bg-amber-950/40 text-amber-200 text-xs font-bold animate-pulse"><i class="fa-solid fa-hand-point-right mr-1"></i>AHORA: ${current[0].text} <span class="font-normal text-amber-300/80">(haz clic en lo que brilla en verde y se ajusta solo, o presiona ESPACIO para todo)</span></div>` : ''}
         <div class="relative h-3 bg-gray-900 rounded mb-2 border border-gray-800">
             <div class="absolute top-0 bottom-0 bg-emerald-900/60 rounded" style="left:${zero}%;width:${m ? clamp(barPos / plan.bars, 0, 1) * (100 - zero) : 0}%"></div>
             ${markers}${cursor}
@@ -1390,12 +1412,13 @@ const KEYMAP = [
     ['Digit7', null, 'pad3', 'pad-3', 'Sampler: Laser'],
     ['KeyH', null, 'help', null, 'Mostrar/ocultar esta ayuda'],
     ['KeyN', null, 'profeNext', null, 'DJ PROFE: otro consejo'],
+    ['Space', null, 'applyTargets', null, 'Ajustar solo todo lo que está iluminado en verde'],
 ];
 const keyIndex = Object.fromEntries(KEYMAP.map(m => [m[0], m]));
 let keyLabels = {};
 
 function defaultKeyLabel(code) {
-    const special = { Semicolon: ';', Comma: ',', Period: '.', Slash: '/', ArrowLeft: '←', ArrowRight: '→', ArrowDown: '↓', Enter: '⏎', Escape: 'Esc' };
+    const special = { Semicolon: ';', Comma: ',', Period: '.', Slash: '/', ArrowLeft: '←', ArrowRight: '→', ArrowDown: '↓', Enter: '⏎', Escape: 'Esc', Space: 'Espacio' };
     if (special[code]) return special[code];
     return code.replace(/^Key|^Digit/, '');
 }
@@ -1504,6 +1527,7 @@ function runAction(m, phase, shift) {
         case 'pad0': case 'pad1': case 'pad2': case 'pad3': triggerPad(+action.slice(3)); break;
         case 'help': $('help-modal').classList.toggle('hidden'); break;
         case 'profeNext': $('profe-next').click(); break;
+        case 'applyTargets': applyAllTargets(); break;
     }
 }
 
@@ -1531,7 +1555,10 @@ function setupKeyboard() {
         if (isTyping(e)) { if (e.code === 'Escape') e.target.blur(); return; }
         if (e.metaKey || e.ctrlKey || e.altKey) return;
         const m = keyIndex[e.code];
-        if (!m) { if (e.code === 'Space') e.preventDefault(); return; }
+        if (!m) {
+            if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) applyAllTargets(); }
+            return;
+        }
         e.preventDefault();
         if (e.repeat && !['xfLeft', 'xfRight'].includes(m[2])) return;
         runAction(m, 'down', e.shiftKey);
@@ -1813,6 +1840,15 @@ function setupGlobal() {
     $('master-gain').addEventListener('input', (e) => { if (Mixer.master) Mixer.master.gain.setTargetAtTime(+e.target.value, audioCtx.currentTime, 0.01); });
     $('sampler-gain').addEventListener('input', (e) => { if (Mixer.sampler) Mixer.sampler.gain.value = +e.target.value; });
     const xf = $('crossfader');
+    // Lit-up crossfader: one click sends it to the target instead of jumping to the cursor
+    xf.addEventListener('mousedown', (e) => {
+        const lit = litTargetFor(xf);
+        if (lit) { e.preventDefault(); glideControl('crossfader', lit.value, 350); }
+    });
+    xf.addEventListener('touchstart', (e) => {
+        const lit = litTargetFor(xf);
+        if (lit) { e.preventDefault(); glideControl('crossfader', lit.value, 350); }
+    }, { passive: false });
     xf.addEventListener('input', () => applyCrossfader(+xf.value));
     xf.addEventListener('dblclick', () => setControl('crossfader', 0));
     wheelSlider(xf, 300);
