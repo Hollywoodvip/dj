@@ -203,7 +203,6 @@ const Analysis = (() => {
         }
         const ref = percentile(bars, 0.9);
         const norm = bars.map(v => Math.min(1, v / ref));
-        const smooth = norm.map((v, i) => (v + (norm[i + 1] ?? v)) / 2);
 
         const HIGH = 0.72;
         const firstSound = Math.max(0, norm.findIndex(v => v > 0.08));
@@ -230,7 +229,7 @@ const Analysis = (() => {
         const breakdowns = [];
         let runStart = -1;
         for (let i = introEndBar; i <= outroStartBar; i++) {
-            const low = i < outroStartBar && smooth[i] < 0.5;
+            const low = i < outroStartBar && norm[i] < 0.5;
             if (low && runStart < 0) runStart = i;
             if (!low && runStart >= 0) {
                 if (i - runStart >= 4) breakdowns.push({ start: downbeat + runStart * barSec, end: downbeat + i * barSec });

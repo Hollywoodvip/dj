@@ -17,6 +17,13 @@ each step bar by bar (which knob, to what value, which effect). **AUTO MIX** pla
 plan by itself; **GUIDED** (T) lights up the controls you have to move so you learn.
 Tracks are auto-levelled (gain) so loud and quiet songs mix evenly.
 
+**DJ PROFE:** a teacher that follows the track that is playing (intro, breakdown,
+drop, end of phrase, outro) and tells you what to do next and why: when to load and
+prepare the next track, when to mix, when a drop is coming and how to build it up
+(filter rise, flanger, roll or trans into the drop, echo at the end of a phrase, reverb
+in a breakdown). Each tip has "do it for me" (runs on the beat) or "show me" (lights up
+the control to touch). The help (H) explains every effect and a DJ glossary.
+
 **Mix assistant:** every track is analysed for BPM + beat grid, downbeats, musical key
 (Camelot), intro / breakdowns / outro and 8-bar phrases. It recommends where to mix
 out and in, how long, and warns about tempo or key clashes.

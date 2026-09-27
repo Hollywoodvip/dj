@@ -100,6 +100,7 @@ function deckTemplate(k) {
                 <span id="deck-${k}-fx-status" class="text-[10px] font-digits text-violet-300"></span>
             </div>
             <div id="deck-${k}-fx-types" class="grid grid-cols-6 gap-1 mb-1.5">${fxButtons}</div>
+            <div id="deck-${k}-fx-hint" class="text-[10px] text-gray-400 leading-snug mb-1.5 min-h-[26px]"></div>
             <div class="grid grid-cols-12 gap-1.5 items-center">
                 <div id="deck-${k}-fx-beats" class="col-span-6 grid grid-cols-5 gap-1">${beatButtons}</div>
                 <div class="col-span-3 flex flex-col">
@@ -135,7 +136,10 @@ function mixerTemplate() {
         const c = k === 'a' ? 'cyan' : 'rose';
         return `
             <div class="flex flex-col items-center gap-1.5 bg-black/20 p-1.5 rounded border border-${c}-900/20 ch-${k}">
-                <span class="text-[10px] font-bold text-${c}-400">CH-${k.toUpperCase()}</span>
+                <div class="flex items-center gap-1.5">
+                    <span class="text-[10px] font-bold text-${c}-400">CH-${k.toUpperCase()}</span>
+                    <button id="deck-${k}-eq-reset" class="mini-btn" title="Todas las perillas de este canal a 0">0</button>
+                </div>
                 ${knob(`deck-${k}-eq-high`, -26, 6, 0.5, 0, 'HI')}
                 ${knob(`deck-${k}-eq-mid`, -26, 6, 0.5, 0, 'MID')}
                 ${knob(`deck-${k}-eq-low`, -26, 6, 0.5, 0, 'LOW')}
@@ -464,8 +468,21 @@ async function handleAudioFiles(files) {
 /* ==========================================================================
    DECK UI
    ========================================================================== */
+// EQ + filter back to 0 (smoothly)
+function resetChannel(deck, ms = 250) {
+    const k = deck.key;
+    ['low', 'mid', 'high'].forEach(b => glideControl(`deck-${k}-eq-${b}`, 0, ms));
+    glideControl(`deck-${k}-filter`, 0, ms);
+}
+
 function onDeckLoaded(deck) {
     const k = deck.key;
+    if (!deck.isPlaying) {
+        // A fresh track starts clean: knobs at 0, no effect running
+        resetChannel(deck, 0);
+        if (deck.fx && deck.fx.on) deck.fx.setOn(false);
+        deck.trick = null;
+    }
     const t = deck.track;
     $(`deck-${k}-title`).textContent = t.title;
     $(`deck-${k}-artist`).textContent = t.artist || '';
@@ -514,6 +531,9 @@ function refreshFxUI(deck) {
     $(`deck-${k}-fx-on`).classList.toggle('active', !!(fx && fx.on));
     const level = fx ? Math.round(fx.level * 100) : 60;
     $(`deck-${k}-fx-status`).textContent = `${FX_LABELS[type]} · ${beatLabel(beats)} · ${level}%`;
+    const hint = typeof FX_HELP !== 'undefined' ? FX_HELP[type] : '';
+    const hintEl = $(`deck-${k}-fx-hint`);
+    if (hintEl.textContent !== hint) hintEl.textContent = hint;
 }
 
 function formatTime(seconds, tenths = true) {
@@ -1017,7 +1037,10 @@ function startAutoMix(now = false, mode = 'auto') {
 
 function cancelAutoMix(message = 'Mezcla cancelada') {
     if (!autoMix) return;
+    const { out } = autoMix;
     autoMix = null;
+    if (out.fx && out.fx.on) out.fx.setOn(false);
+    deckList.forEach(d => resetChannel(d, 400));
     setCoachTargets([]);
     toast(message, 'warn');
     updateAssistant();
@@ -1089,6 +1112,7 @@ function refreshCoachTargets() {
 }
 
 function formatTarget(t) {
+    if (t.label) return t.label;
     if (t.fx) return 'ON';
     if (t.id === 'crossfader') return t.value === 0 ? 'CENTRO' : t.value < 0 ? 'A' : 'B';
     if (t.id.endsWith('filter')) return t.value > 0 ? `HPF ${t.value}` : t.value < 0 ? `LPF ${-t.value}` : '0';
@@ -1096,9 +1120,16 @@ function formatTarget(t) {
 }
 
 let coachEls = [];
+let mixTargets = [];
 function setCoachTargets(targets) {
+    mixTargets = targets;
+    applyHighlights();
+}
+// Lights up what the mix coach (guided mix) and the DJ PROFE want you to touch
+function applyHighlights() {
+    const all = mixTargets.concat(typeof Profe !== 'undefined' ? Profe.targets() : []);
     coachEls.forEach(el => { el.classList.remove('coach-target'); delete el.dataset.target; });
-    coachEls = targets.map(t => {
+    coachEls = all.map(t => {
         const input = $(t.id);
         const el = input.closest('.knob-container') || (input.tagName === 'INPUT' ? input.parentElement : input);
         el.classList.add('coach-target');
@@ -1358,6 +1389,7 @@ const KEYMAP = [
     ['Digit6', null, 'pad2', 'pad-2', 'Sampler: Riser'],
     ['Digit7', null, 'pad3', 'pad-3', 'Sampler: Laser'],
     ['KeyH', null, 'help', null, 'Mostrar/ocultar esta ayuda'],
+    ['KeyN', null, 'profeNext', null, 'DJ PROFE: otro consejo'],
 ];
 const keyIndex = Object.fromEntries(KEYMAP.map(m => [m[0], m]));
 let keyLabels = {};
@@ -1405,7 +1437,13 @@ function renderHelp() {
     $('help-content').innerHTML =
         col('DECK A (izquierda)', 'text-cyan-400', KEYMAP.filter(m => m[1] === 'a')) +
         col('DECK B (derecha)', 'text-rose-400', KEYMAP.filter(m => m[1] === 'b')) +
-        col('MIXER / GLOBAL', 'text-emerald-400', KEYMAP.filter(m => !m[1]));
+        col('MIXER / GLOBAL', 'text-emerald-400', KEYMAP.filter(m => !m[1])) +
+        `<div class="md:col-span-3 grid md:grid-cols-2 gap-4 border-t border-gray-800 pt-3">
+            <div><div class="font-bold text-violet-300 mb-1 text-[11px] tracking-wider">EFECTOS: QUÉ SON Y CUÁNDO USARLOS</div>
+                <table class="w-full">${FX_TYPES.map(t => `<tr><td class="py-0.5 pr-2 align-top font-bold text-white w-16">${FX_LABELS[t]}</td><td class="text-gray-300">${FX_HELP[t]}</td></tr>`).join('')}</table></div>
+            <div><div class="font-bold text-amber-300 mb-1 text-[11px] tracking-wider">GLOSARIO</div>
+                <table class="w-full">${GLOSSARY.map(([w, d]) => `<tr><td class="py-0.5 pr-2 align-top font-bold text-white w-24">${w}</td><td class="text-gray-300">${d}</td></tr>`).join('')}</table></div>
+        </div>`;
 }
 
 function pressFlash(id) {
@@ -1465,6 +1503,7 @@ function runAction(m, phase, shift) {
         case 'prep': prepareNext(); break;
         case 'pad0': case 'pad1': case 'pad2': case 'pad3': triggerPad(+action.slice(3)); break;
         case 'help': $('help-modal').classList.toggle('hidden'); break;
+        case 'profeNext': $('profe-next').click(); break;
     }
 }
 
@@ -1704,6 +1743,7 @@ function setupDeck(deck) {
     $(`deck-${k}-tap`).addEventListener('click', () => tapTempo(deck));
 
     // EQ / filter / volume
+    $(`deck-${k}-eq-reset`).addEventListener('click', () => { ensureAudio(); resetChannel(deck); });
     ['low', 'mid', 'high'].forEach(b => $(`deck-${k}-eq-${b}`).addEventListener('input', (e) => applyEq(deck, b, +e.target.value)));
     $(`deck-${k}-filter`).addEventListener('input', (e) => applyFilter(deck, +e.target.value));
     const vol = $(`deck-${k}-volume`);
@@ -1874,6 +1914,7 @@ function frame(nowMs) {
         tickGlides(nowMs);
         deckList.forEach(d => d.tick(nowMs));
         tickAutoMix();
+        Profe.tickTricks();
     }
     deckList.forEach(deck => {
         const k = deck.key;
@@ -1914,6 +1955,7 @@ function frame(nowMs) {
         const sig = `${live.id}:${live.track ? live.track.id : ''}:${live.pitch.toFixed(3)}:${library.length}`;
         if (sig !== librarySignature) { librarySignature = sig; renderLibrary(); }
         if (audioCtx) tickAutoDJ();
+        Profe.tick();
     }
     requestAnimationFrame(frame);
 }
@@ -1929,5 +1971,6 @@ window.addEventListener('DOMContentLoaded', () => {
     deckList.forEach(refreshDeckButtons);
     renderLibrary();
     checkServer();
+    Profe.init();
     requestAnimationFrame(frame);
 });

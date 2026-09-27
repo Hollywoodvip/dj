@@ -219,6 +219,26 @@
         <section id="deck-b" class="lg:col-span-5 dj-panel deck-b-border rounded-lg p-3 flex flex-col gap-2"></section>
     </main>
 
+    <!-- DJ PROFE -->
+    <section id="profe" class="dj-panel rounded-lg p-3 mt-3 border-l-4 border-amber-400 flex items-start gap-3">
+        <div class="w-10 h-10 rounded-full bg-amber-950 border border-amber-500/50 flex items-center justify-center shrink-0">
+            <i id="profe-icon" class="fa-solid fa-user-graduate text-amber-300 text-xl"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="text-[10px] font-bold text-amber-300 tracking-widest">DJ PROFE</span>
+                <span id="profe-title" class="text-sm font-bold text-white"></span>
+                <span id="profe-when" class="font-digits text-[10px] text-amber-200"></span>
+            </div>
+            <div id="profe-text" class="text-xs text-gray-300 mt-0.5"></div>
+            <div id="profe-actions" class="flex flex-wrap gap-2 mt-2"></div>
+        </div>
+        <div class="flex flex-col gap-1 shrink-0">
+            <button id="profe-toggle" class="mini-btn">PROFE: ON</button>
+            <button id="profe-next" class="mini-btn" title="Otro consejo (N)">OTRO CONSEJO ›</button>
+        </div>
+    </section>
+
     <!-- Mix assistant + sampler -->
     <section class="grid grid-cols-1 lg:grid-cols-12 gap-3 mt-3">
         <div class="lg:col-span-8 dj-panel rounded-lg p-3 border-t-2 border-emerald-500">
@@ -353,5 +373,6 @@
     <script src="js/fx.js"></script>
     <script src="js/engine.js"></script>
     <script src="js/app.js"></script>
+    <script src="js/profe.js"></script>
 </body>
 </html>
