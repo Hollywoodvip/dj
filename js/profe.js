@@ -13,6 +13,16 @@ const FX_HELP = {
     roll: 'Repite un pedacito y al soltar vuelve donde iba el tema. En el último compás antes del drop: 1/2 y luego 1/4.',
 };
 
+// Safe zones so an effect adds flavour instead of ruining the track
+const FX_LIMITS = {
+    echo: { max: 0.7, beats: [0.5, 1], maxBars: 4, tip: 'nivel hasta 70%, 1/2 o 1 beat, pocos compases' },
+    reverb: { max: 0.6, beats: [1, 2, 4], maxBars: 16, tip: 'nivel hasta 60%: más que eso lava todo el tema' },
+    flanger: { max: 0.7, beats: [2, 4], maxBars: 8, tip: 'nivel hasta 70%, 2 o 4 beats (1/4 suena a robot)' },
+    phaser: { max: 0.6, beats: [2, 4], maxBars: 16, tip: 'nivel hasta 60%, 2 o 4 beats, es para ser sutil' },
+    trans: { max: 1, beats: [0.25, 0.5], maxBars: 2, tip: '1/4 o 1/2, solo 1–2 compases antes de un drop' },
+    roll: { max: 1, beats: [0.25, 0.5, 1], maxBars: 1, tip: 'máximo 1 compás, y suéltalo en el drop' },
+};
+
 const GLOSSARY = [
     ['BEAT', 'Cada golpe del ritmo (lo que marcas con el pie). 4 beats = 1 compás.'],
     ['COMPÁS', '4 beats. El contador del jog muestra compás.beat (ej. 12.3).'],
@@ -343,6 +353,122 @@ const Profe = (() => {
         return tips;
     }
 
+    /* ---------------- live review of what you are doing ---------------- */
+    const since = { loop: { a: null, b: null }, filter: { a: null, b: null } };
+    const bars = (deck, ms) => ms / 1000 / (4 * deck.beatSec / deck.playbackRate);
+
+    function xfGain(deck) {
+        const x = +$('crossfader').value;
+        return deck === decks.a ? Math.cos((x + 1) * 0.25 * Math.PI) : Math.sin((x + 1) * 0.25 * Math.PI);
+    }
+    const audible = (d) => d.isPlaying && d.analysis && xfGain(d) > 0.15 && +$(`deck-${d.key}-volume`).value > 0.05;
+    const val = (id) => +$(id).value;
+
+    function liveChecks() {
+        const out = [];
+        const now = performance.now();
+        const add = (level, text, why, fix) => out.push({ level, text, why, fix });
+        const set = (id, value) => ({ targets: [{ id, value }] });
+        const on = deckList.filter(audible);
+        if (!on.length) return out;
+
+        deckList.forEach(d => {
+            const k = d.key;
+            since.loop[k] = d.loop.active && !d.slip ? (since.loop[k] || now) : null;
+            since.filter[k] = Math.abs(val(`deck-${k}-filter`)) > 5 ? (since.filter[k] || now) : null;
+        });
+
+        on.forEach(d => {
+            const k = d.key, D = d.id;
+            // Effects inside their safe zone
+            if (d.fx.on) {
+                const lim = FX_LIMITS[d.fx.type];
+                const name = FX_LABELS[d.fx.type];
+                if (d.fx.level > lim.max + 0.02) add('warn', `${name} ${D} muy fuerte (${Math.round(d.fx.level * 100)}%)`, `Zona segura: ${lim.tip}.`, set(`deck-${k}-fx-level`, lim.max));
+                else if (!lim.beats.includes(d.fx.beats)) add('warn', `${name} ${D} en ${beatLabel(d.fx.beats)}`, `Para ${name} lo que suena bien es ${lim.beats.map(beatLabel).join(' o ')}.`, { run: () => { d.fx.setBeats(lim.beats[lim.beats.length - 1]); refreshFxUI(d); } });
+                else add('ok', `${name} ${D} en zona segura`, lim.tip);
+            }
+            // Loop left running
+            if (since.loop[k] && bars(d, now - since.loop[k]) > 8) add('warn', `Loop del ${D} hace ${Math.round(bars(d, now - since.loop[k]))} comp.`, 'Un loop sirve para alargar una parte unos compases; si lo dejas mucho la gente siente que el tema se pegó.', { run: () => { d.exitLoop(); refreshDeckButtons(d); } });
+            // Filter parked
+            if (since.filter[k] && !autoMix && !d.trick && bars(d, now - since.filter[k]) > 8) add('warn', `FILTER del ${D} puesto hace rato`, 'El filtro es para una subida o una salida, no para dejarlo: el tema suena apagado o flaco.', set(`deck-${k}-filter`, 0));
+            // EQ boosts
+            ['low', 'mid', 'high'].forEach(b => {
+                if (val(`deck-${k}-eq-${b}`) > 2.5) add('warn', `${b.toUpperCase()} del ${D} sobre 0`, 'Subir el EQ sobre 0 satura. Los DJs casi nunca suben: bajan lo que sobra.', set(`deck-${k}-eq-${b}`, 0));
+            });
+            // Pitch too far
+            if (Math.abs(d.pitch - 1) > 0.06) add('warn', `Pitch del ${D} en ${((d.pitch - 1) * 100).toFixed(1)}%`, 'Más de ±6% cambia notoriamente la voz (ardilla o monstruo). Mejor mezcla con ECHO OUT a temas de tempo muy distinto.');
+            // Only playing deck sounding dull
+            if (on.length === 1 && !autoMix && (val(`deck-${k}-eq-mid`) < -12 || val(`deck-${k}-eq-high`) < -12 || val(`deck-${k}-eq-low`) < -12)) {
+                add('warn', `EQ del ${D} muy cortado`, 'Es el único tema sonando: con tanto corte se escucha apagado. Vuelve las perillas a 0.', { run: () => resetChannel(d) });
+            }
+        });
+
+        if (on.length === 2) {
+            // Two basslines at once
+            const lows = on.map(d => val(`deck-${d.key}-eq-low`));
+            if (lows.every(v => v > -8)) {
+                const quieter = xfGain(decks.a) < xfGain(decks.b) ? decks.a : decks.b;
+                add('bad', 'Dos bajos sonando juntos', 'Los bajos de dos temas juntos chocan y se "embarran". Deja el LOW de uno en −26 hasta el cambio de bajos.', set(`deck-${quieter.key}-eq-low`, -26));
+            } else add('ok', 'Bajos: solo uno a la vez', 'Así se escucha limpio.');
+            // Beats aligned?
+            const [a, b] = on;
+            if (a.analysis && b.analysis && tempoRatio(b, a)) {
+                const diff = Math.abs(a.effectiveBpm - b.effectiveBpm * (b.syncFactor || 1));
+                let phase = (a.beatPosition() - b.beatPosition()) % 1;
+                if (phase < 0) phase += 1;
+                const off = Math.min(phase, 1 - phase);
+                if (diff > 0.3 || off > 0.12) add('bad', 'Beats descuadrados', 'Los golpes de los dos temas no caen juntos (suena a "galope"). Presiona SYNC en el que entra.', { run: () => { const n = liveAndNext().next; if (!n.syncOn) toggleSync(n); else alignPhase(n, otherDeck(n)); } });
+                else add('ok', 'Beats cuadrados', 'Los golpes de los dos temas caen juntos.');
+            }
+        }
+
+        // Crossfader pointing at a deck that isn't playing
+        const x = +$('crossfader').value;
+        const side = x > 0.6 ? decks.b : x < -0.6 ? decks.a : null;
+        if (side && !side.isPlaying && otherDeck(side).isPlaying) add('bad', `Crossfader en ${side.id} pero ${side.id} no suena`, 'Casi no se escucha nada: lleva el crossfader hacia el deck que está sonando.', set('crossfader', side === decks.a ? 1 : -1));
+        return out;
+    }
+
+    let checksSig = '';
+    function renderChecks() {
+        const box = $('profe-checks');
+        if (!box) return;
+        const checks = enabled && audioCtx ? liveChecks() : [];
+        const sig = checks.map(c => c.level + c.text).join('|');
+        if (sig === checksSig) return;
+        checksSig = sig;
+        box.innerHTML = '';
+        box.classList.toggle('hidden', !checks.length);
+        if (!checks.length) return;
+        const label = document.createElement('span');
+        label.className = 'text-[10px] font-bold text-gray-400 tracking-wider mr-1';
+        label.textContent = 'TU MEZCLA:';
+        box.appendChild(label);
+        const order = { bad: 0, warn: 1, ok: 2 };
+        checks.sort((x, y) => order[x.level] - order[y.level]).forEach(c => {
+            const el = document.createElement(c.fix ? 'button' : 'span');
+            const styles = {
+                ok: 'border-emerald-700/60 text-emerald-300 bg-emerald-950/40',
+                warn: 'border-amber-500/70 text-amber-200 bg-amber-950/50 hover:bg-amber-900/60',
+                bad: 'border-rose-500/80 text-rose-200 bg-rose-950/60 hover:bg-rose-900/60 animate-pulse',
+            };
+            const icons = { ok: 'fa-circle-check', warn: 'fa-triangle-exclamation', bad: 'fa-circle-xmark' };
+            el.className = `px-2 py-0.5 rounded-full border text-[11px] font-bold flex items-center gap-1 ${styles[c.level]}`;
+            el.title = c.why + (c.fix ? ' (clic para arreglarlo)' : '');
+            el.innerHTML = `<i class="fa-solid ${icons[c.level]}"></i><span></span>${c.fix ? '<span class="font-normal opacity-70 ml-1">· arreglar</span>' : ''}`;
+            el.querySelector('span').textContent = c.text;
+            if (c.fix) el.addEventListener('click', () => {
+                ensureAudio();
+                if (c.fix.targets) c.fix.targets.forEach(t => glideControl(t.id, t.value, 350));
+                if (c.fix.run) c.fix.run();
+                toast(`Arreglado: ${c.why}`, 'ok');
+                checksSig = '';
+            });
+            box.appendChild(el);
+        });
+    }
+
     /* ---------------- rendering ---------------- */
     function render(force = false) {
         const el = $('profe');
@@ -395,6 +521,7 @@ const Profe = (() => {
             if (d.fx && !d.fx.on) fxOnSince[d.key] = null;
         });
         render();
+        renderChecks();
     }
 
     function init() {

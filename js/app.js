@@ -106,6 +106,7 @@ function deckTemplate(k) {
                 <div class="col-span-3 flex flex-col">
                     <span class="text-[9px] text-gray-500">LEVEL/DEPTH</span>
                     <input id="deck-${k}-fx-level" type="range" min="0" max="1" step="0.01" value="0.6" class="w-full slim">
+                    <div class="fx-safe-track" title="Verde = zona segura, rojo = arruina el tema"><div id="deck-${k}-fx-safe" style="width:70%"></div></div>
                 </div>
                 <button id="deck-${k}-fx-on" class="col-span-3 btn-dj btn-fx-on py-2 rounded font-black text-[11px] text-rose-300">FX ON</button>
             </div>
@@ -533,9 +534,17 @@ function refreshFxUI(deck) {
     $(`deck-${k}-fx-on`).classList.toggle('active', !!(fx && fx.on));
     const level = fx ? Math.round(fx.level * 100) : 60;
     $(`deck-${k}-fx-status`).textContent = `${FX_LABELS[type]} · ${beatLabel(beats)} · ${level}%`;
-    const hint = typeof FX_HELP !== 'undefined' ? FX_HELP[type] : '';
+    const lim = typeof FX_LIMITS !== 'undefined' ? FX_LIMITS[type] : null;
+    const hint = typeof FX_HELP !== 'undefined' ? `${FX_HELP[type]}${lim ? ` Límite: ${lim.tip}.` : ''}` : '';
     const hintEl = $(`deck-${k}-fx-hint`);
     if (hintEl.textContent !== hint) hintEl.textContent = hint;
+    if (lim) {
+        $(`deck-${k}-fx-safe`).style.width = `${lim.max * 100}%`;
+        document.querySelectorAll(`#deck-${k}-fx-beats [data-fxbeats]`).forEach(b => b.classList.toggle('fx-rec', lim.beats.includes(+b.dataset.fxbeats)));
+        const over = fx && fx.level > lim.max + 0.02;
+        $(`deck-${k}-fx-status`).classList.toggle('text-amber-300', !!over);
+        $(`deck-${k}-fx-status`).classList.toggle('text-violet-300', !over);
+    }
 }
 
 function formatTime(seconds, tenths = true) {

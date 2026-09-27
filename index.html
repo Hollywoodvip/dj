@@ -157,6 +157,11 @@
             #sampler-pads .pad { padding-top: 0.5rem; padding-bottom: 0.5rem; }
         }
 
+        /* FX: recommended beat values and safe level zone */
+        .fx-rec::before { content: ''; position: absolute; left: 4px; top: 4px; width: 5px; height: 5px; border-radius: 50%; background: #34d399; }
+        .fx-safe-track { position: relative; height: 3px; border-radius: 2px; background: rgba(244,63,94,0.55); margin-top: 1px; }
+        .fx-safe-track > div { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: #10b981; }
+
         .modal-blur { backdrop-filter: blur(8px); background-color: rgba(5, 6, 9, 0.85); }
 
         @keyframes pulseGlow { 0%, 100% { opacity: 0.75; } 50% { opacity: 1; } }
@@ -246,6 +251,7 @@
             </div>
             <div id="profe-text" class="text-xs text-gray-300 mt-0.5"></div>
             <div id="profe-actions" class="flex flex-wrap gap-2 mt-2"></div>
+            <div id="profe-checks" class="hidden flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-gray-800"></div>
         </div>
         <div class="flex flex-col gap-1 shrink-0">
             <button id="profe-toggle" class="mini-btn">PROFE: ON</button>
