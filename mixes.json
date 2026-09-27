@@ -74,5 +74,358 @@
   "warnings": [],
   "result": "cancelled",
   "mixSeconds": 34.6
+ },
+ {
+  "at": "2026-09-27T16:03:30.197Z",
+  "mode": "guide",
+  "out": {
+   "title": "Rag - Give It Up To Me (When You Gonna) [Extended Mix] | TECH HOUSE",
+   "artist": "Illumi Music",
+   "url": "https://www.youtube.com/watch?v=fj7-kUpRIHs&list=PLa1E0oX0lRB9N1s0k6wK3oVI2WYYJu5HQ&index=5",
+   "bpm": 126,
+   "key": "8A"
+  },
+  "in": {
+   "title": "Anyma - The Light [Visualizer]",
+   "artist": "Anyma",
+   "url": "https://www.youtube.com/watch?v=YZR5b4JvVYY&list=RDEMe_AXf0xiW5xjE-0CkqeX1Q&index=27",
+   "bpm": 127,
+   "key": "8A"
+  },
+  "plan": {
+   "style": "blend",
+   "pace": "long",
+   "bars": 8,
+   "synced": true,
+   "rate": 1.016,
+   "dropAtEnd": true,
+   "useDrop": false,
+   "bassOnDrop": false,
+   "introLoop": false,
+   "idealOutPos": 228.695,
+   "inStart": 45.497,
+   "reason": "tempo cercano y tonalidades armónicas (8A → 8A): se pueden fundir largo"
+  },
+  "startedBarsFromIdeal": 55,
+  "levelMinDb": -13.451,
+  "levelMaxDb": -0.357,
+  "warnings": [
+   "Bajó el volumen de la mezcla"
+  ],
+  "result": "early",
+  "mixSeconds": 21.5
+ },
+ {
+  "at": "2026-09-27T16:05:23.997Z",
+  "mode": "guide",
+  "out": {
+   "title": "Anyma - The Light [Visualizer]",
+   "artist": "Anyma",
+   "url": "https://www.youtube.com/watch?v=YZR5b4JvVYY&list=RDEMe_AXf0xiW5xjE-0CkqeX1Q&index=27",
+   "bpm": 127,
+   "key": "8A"
+  },
+  "in": {
+   "title": "Anyma, Baset - Neverland (From Japan) [Live at Sphere Vegas]",
+   "artist": "Anyma",
+   "url": "https://www.youtube.com/watch?v=2ydtr7J0n6A&list=RDEMe_AXf0xiW5xjE-0CkqeX1Q&index=30",
+   "bpm": 128,
+   "key": "7A"
+  },
+  "plan": {
+   "style": "blend",
+   "pace": "long",
+   "bars": 8,
+   "synced": true,
+   "rate": 1.005,
+   "dropAtEnd": false,
+   "useDrop": false,
+   "bassOnDrop": false,
+   "introLoop": false,
+   "idealOutPos": 191.009,
+   "inStart": 0,
+   "reason": "tempo cercano y tonalidades armónicas (8A → 7A): se pueden fundir largo"
+  },
+  "startedBarsFromIdeal": -11,
+  "levelMinDb": -16.88,
+  "levelMaxDb": 0.352,
+  "warnings": [],
+  "result": "early",
+  "mixSeconds": 5.6
+ },
+ {
+  "at": "2026-09-27T16:07:54.936Z",
+  "mode": "guide",
+  "out": {
+   "title": "Anyma, Baset - Neverland (From Japan) [Live at Sphere Vegas]",
+   "artist": "Anyma",
+   "url": "https://www.youtube.com/watch?v=2ydtr7J0n6A&list=RDEMe_AXf0xiW5xjE-0CkqeX1Q&index=30",
+   "bpm": 128,
+   "key": "7A"
+  },
+  "in": {
+   "title": "Consciousness (Eric Prydz Remix)",
+   "artist": "Anyma, Chris Avantgarde",
+   "url": "https://www.youtube.com/watch?v=6RcikTgxEyg&list=RDEMe_AXf0xiW5xjE-0CkqeX1Q&index=16",
+   "bpm": 126,
+   "key": "10B"
+  },
+  "plan": {
+   "style": "filter",
+   "pace": "long",
+   "bars": 4,
+   "synced": true,
+   "rate": 1.019,
+   "dropAtEnd": true,
+   "useDrop": false,
+   "bassOnDrop": false,
+   "introLoop": false,
+   "idealOutPos": 194.956,
+   "inStart": 23.001,
+   "reason": "las tonalidades 7A y 10B chocan: el filtro le quita cuerpo al tema que sale y la mezcla es corta"
+  },
+  "startedBarsFromIdeal": 63,
+  "levelMinDb": -0.707,
+  "levelMaxDb": 1.263,
+  "warnings": [],
+  "result": "early",
+  "mixSeconds": 26.2,
+  "rating": "bad"
+ },
+ {
+  "at": "2026-09-27T16:09:36.514Z",
+  "mode": "guide",
+  "out": {
+   "title": "Consciousness (Eric Prydz Remix)",
+   "artist": "Anyma, Chris Avantgarde",
+   "url": "https://www.youtube.com/watch?v=6RcikTgxEyg&list=RDEMe_AXf0xiW5xjE-0CkqeX1Q&index=16",
+   "bpm": 126,
+   "key": "10B"
+  },
+  "in": {
+   "title": "Black Aura - Soul to Soul | Deep & Melodic AfroHouse",
+   "artist": "Black Aura",
+   "url": "https://www.youtube.com/watch?v=WZoAJqYMX_o&list=RDEMe_AXf0xiW5xjE-0CkqeX1Q&index=39",
+   "bpm": 114,
+   "key": "11A"
+  },
+  "plan": {
+   "style": "echo",
+   "pace": "long",
+   "bars": 2,
+   "synced": false,
+   "rate": null,
+   "dropAtEnd": false,
+   "useDrop": true,
+   "bassOnDrop": false,
+   "introLoop": false,
+   "idealOutPos": 213.477,
+   "inStart": 25.334,
+   "reason": "los tempos (128 y 114 BPM) están a 12%: para igualarlos las voces sonarían a ardilla. Se corta con eco y el B entra a su velocidad normal"
+  },
+  "startedBarsFromIdeal": 63,
+  "levelMinDb": 1.969,
+  "levelMaxDb": 9.792,
+  "warnings": [
+   "Subió mucho el volumen"
+  ],
+  "result": "early",
+  "mixSeconds": 15.5,
+  "rating": "bad"
+ },
+ {
+  "at": "2026-09-27T16:11:37.226Z",
+  "mode": "guide",
+  "out": {
+   "title": "Lana del Rey - Summertime Sadness (Zeno Altea Afro House Remix)",
+   "artist": "Music And Vibes ",
+   "url": "https://www.youtube.com/watch?v=7z67WjLY5ro&list=RDEMe_AXf0xiW5xjE-0CkqeX1Q&index=27",
+   "bpm": 122,
+   "key": "12A"
+  },
+  "in": {
+   "title": "Mark Ronson - Nothing Breaks Like a Heart (Official Video) ft. Miley Cyrus",
+   "artist": "Mark Ronson",
+   "url": "https://www.youtube.com/watch?v=A9hcJgtnm6Q",
+   "bpm": 114,
+   "key": "6A"
+  },
+  "plan": {
+   "style": "echo",
+   "pace": "long",
+   "bars": 2,
+   "synced": false,
+   "rate": null,
+   "dropAtEnd": false,
+   "useDrop": true,
+   "bassOnDrop": false,
+   "introLoop": false,
+   "idealOutPos": 267.638,
+   "inStart": 49.918,
+   "reason": "los tempos (122 y 114 BPM) están a 7%: para igualarlos las voces sonarían a ardilla. Se corta con eco y el A entra a su velocidad normal"
+  },
+  "startedBarsFromIdeal": 79,
+  "levelMinDb": -3.153,
+  "levelMaxDb": 10.582,
+  "warnings": [
+   "Subió mucho el volumen"
+  ],
+  "result": "cancelled",
+  "mixSeconds": 70.3
+ },
+ {
+  "at": "2026-09-27T16:14:03.000Z",
+  "mode": "guide",
+  "out": {
+   "title": "Mark Ronson - Nothing Breaks Like a Heart (Official Video) ft. Miley Cyrus",
+   "artist": "Mark Ronson",
+   "url": "https://www.youtube.com/watch?v=A9hcJgtnm6Q",
+   "bpm": 114,
+   "key": "6A"
+  },
+  "in": {
+   "title": "Møme, Ricky Ducati - Got It Made (Official Video)",
+   "artist": "Møme Music",
+   "url": "https://www.youtube.com/watch?v=dPg95LGadfM",
+   "bpm": 112,
+   "key": "2A"
+  },
+  "plan": {
+   "style": "filter",
+   "pace": "long",
+   "bars": 8,
+   "synced": true,
+   "rate": 1.018,
+   "dropAtEnd": true,
+   "useDrop": false,
+   "bassOnDrop": false,
+   "introLoop": true,
+   "idealOutPos": 220.444,
+   "inStart": 4.09,
+   "reason": "las tonalidades 6A y 2A chocan: el filtro le quita cuerpo al tema que sale y la mezcla es corta"
+  },
+  "startedBarsFromIdeal": 24,
+  "levelMinDb": -7.711,
+  "levelMaxDb": 1.883,
+  "warnings": [],
+  "result": "early",
+  "mixSeconds": 34.2
+ },
+ {
+  "at": "2026-09-27T16:17:22.249Z",
+  "mode": "guide",
+  "out": {
+   "title": "Møme, Ricky Ducati - Got It Made (Official Video)",
+   "artist": "Møme Music",
+   "url": "https://www.youtube.com/watch?v=dPg95LGadfM",
+   "bpm": 112,
+   "key": "2A"
+  },
+  "in": {
+   "title": "Now Or Never",
+   "artist": "Anyma, IVERSON",
+   "url": "https://www.youtube.com/watch?v=rkWTZ-86T6o&list=RDEMe_AXf0xiW5xjE-0CkqeX1Q&index=18",
+   "bpm": 126,
+   "key": "11A"
+  },
+  "plan": {
+   "style": "echo",
+   "pace": "long",
+   "bars": 2,
+   "synced": false,
+   "rate": null,
+   "dropAtEnd": false,
+   "useDrop": false,
+   "bassOnDrop": false,
+   "introLoop": false,
+   "idealOutPos": 192.662,
+   "inStart": 0.987,
+   "reason": "los tempos (112 y 126 BPM) están a 11%: para igualarlos las voces sonarían a ardilla. Se corta con eco y el A entra a su velocidad normal"
+  },
+  "startedBarsFromIdeal": 19,
+  "levelMinDb": -1.255,
+  "levelMaxDb": 10.5,
+  "warnings": [
+   "Subió mucho el volumen"
+  ],
+  "result": "early",
+  "mixSeconds": 19.7
+ },
+ {
+  "at": "2026-09-27T16:21:11.014Z",
+  "mode": "guide",
+  "out": {
+   "title": "Now Or Never",
+   "artist": "Anyma, IVERSON",
+   "url": "https://www.youtube.com/watch?v=rkWTZ-86T6o&list=RDEMe_AXf0xiW5xjE-0CkqeX1Q&index=18",
+   "bpm": 126,
+   "key": "11A"
+  },
+  "in": {
+   "title": "Lana Del Rey - Say Yes To Heaven (Anyma Remix) [Live from Afterlife Tomorrowland]",
+   "artist": "Anyma",
+   "url": "https://www.youtube.com/watch?v=ld2X224Ybu0&list=RDEMe_AXf0xiW5xjE-0CkqeX1Q&index=13",
+   "bpm": 126,
+   "key": "11A"
+  },
+  "plan": {
+   "style": "blend",
+   "pace": "long",
+   "bars": 8,
+   "synced": true,
+   "rate": 1,
+   "dropAtEnd": false,
+   "useDrop": false,
+   "bassOnDrop": false,
+   "introLoop": false,
+   "idealOutPos": 216.225,
+   "inStart": 0.58,
+   "reason": "tempo cercano y tonalidades armónicas (11A → 11A): se pueden fundir largo"
+  },
+  "startedBarsFromIdeal": null,
+  "levelMinDb": null,
+  "levelMaxDb": null,
+  "warnings": [],
+  "result": "cancelled",
+  "mixSeconds": null
+ },
+ {
+  "at": "2026-09-27T16:21:13.849Z",
+  "mode": "guide",
+  "out": {
+   "title": "Now Or Never",
+   "artist": "Anyma, IVERSON",
+   "url": "https://www.youtube.com/watch?v=rkWTZ-86T6o&list=RDEMe_AXf0xiW5xjE-0CkqeX1Q&index=18",
+   "bpm": 126,
+   "key": "11A"
+  },
+  "in": {
+   "title": "Anyma - Beautiful [Afro Deep House Mix]",
+   "artist": "Art Of Techno Afro ",
+   "url": "https://www.youtube.com/watch?v=A7lqfj3Wqug&list=RDEMe_AXf0xiW5xjE-0CkqeX1Q&index=27",
+   "bpm": 125,
+   "key": "6B"
+  },
+  "plan": {
+   "style": "filter",
+   "pace": "long",
+   "bars": 8,
+   "synced": true,
+   "rate": 1.008,
+   "dropAtEnd": true,
+   "useDrop": false,
+   "bassOnDrop": true,
+   "introLoop": false,
+   "idealOutPos": 220.035,
+   "inStart": 4.115,
+   "reason": "las tonalidades 11A y 6B chocan: el filtro le quita cuerpo al tema que sale y la mezcla es corta"
+  },
+  "startedBarsFromIdeal": -6,
+  "levelMinDb": 0.211,
+  "levelMaxDb": 2.059,
+  "warnings": [],
+  "result": "early",
+  "mixSeconds": 17.8,
+  "rating": "bad"
  }
 ]
