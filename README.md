@@ -1,8 +1,24 @@
 # WebDJ Pro
 
-Two-deck DJ app in the browser (Web Audio API): pitch, sync, brake, hot cues,
-loops, 3-band EQ, filter, crossfader, BPM detection — plus a YouTube audio
-extractor powered by [yt-dlp](https://github.com/yt-dlp/yt-dlp).
+Two-deck DJ app in the browser (Web Audio API) with a YouTube audio extractor
+powered by [yt-dlp](https://github.com/yt-dlp/yt-dlp).
+
+**Decks:** pitch (±8/±16%), SYNC with beat-phase alignment, hot cues, beat-quantized
+loops, CUE with hold-to-preview, jog wheel (pitch bend / scrub), BRAKE and SPINBACK,
+Rekordbox-style 3-band waveforms with beat grid, bar/beat counter.
+
+**Beat FX (per deck):** ECHO, REVERB, FLANGER, PHASER, TRANS, ROLL (with slip),
+synced to the track tempo (1/4 – 4 beats), level/depth, tap = latch, hold = momentary.
+
+**Mix assistant:** every track is analysed for BPM + beat grid, downbeats, musical key
+(Camelot), intro / breakdowns / outro and 8-bar phrases. It recommends where to mix
+out and in, how long, and warns about tempo or key clashes.
+**AUTO MIX** does the transition for you (tempo sync, starts the next track on the
+phrase, crossfade, bass swap). **AUTO DJ** keeps mixing through your library,
+picking the best-matching track next.
+
+**Also:** sampler pads (air horn, siren, riser, laser), library with match stars,
+keyboard shortcuts for everything (press **H** in the app).
 
 ## Run it
 
@@ -42,3 +58,20 @@ link and press **Extract Audio**. When it finishes, send the track to Deck A or 
   the YouTube converter needs `server.py`.
 
 Only download content you own or have permission to use.
+
+## Keyboard (press H in the app for the full list)
+
+| Deck A | Deck B | Action |
+|---|---|---|
+| S | L | Play / pause |
+| A | ; (Ñ) | Cue (hold = preview) |
+| D | K | Sync |
+| Z / X | / (-) / . | Nudge slower / faster (Shift = pitch ±0.1%) |
+| Q W E R | U I O P | Loop 1 / 2 / 4 / 8 beats |
+| 1 2 3 | 8 9 0 | Hot cues (Shift = delete) |
+| F | J | FX on (tap = latch, hold = momentary) |
+| C | , | Next effect |
+| V | M | Brake (Shift = spinback) |
+
+Global: ← → crossfader · ↓ center · Enter = AUTO MIX · Shift+Enter = MIX NOW ·
+G = prepare next deck · 4–7 = sampler · Esc = cancel · H = help.
