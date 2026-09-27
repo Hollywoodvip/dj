@@ -787,6 +787,7 @@ function drawOverview(deck) {
     marker(ctx, X(a.mixIn), h, '#10b981', 'IN');
     if (a.introEnd - a.mixIn > a.beatSec * 8) marker(ctx, X(a.introEnd), h, '#8b5cf6', 'DROP', false);
     marker(ctx, X(a.mixOut), h, '#f97316', 'OUT');
+    if (resolvedPace(deck) === 'fast') { const f = outPoint(deck); if (Math.abs(f - a.mixOut) > 1) marker(ctx, X(f), h, '#facc15', 'OUT', false); }
     ctx.fillStyle = 'rgba(249,115,22,0.25)';
     ctx.fillRect(X(a.mixOut), h - 3, X(Math.min(dur, a.mixOut + a.mixBars * 4 * a.beatSec)) - X(a.mixOut), 3);
     [1, 2, 3].forEach(n => { if (deck.hotCues[n] !== null) marker(ctx, X(deck.hotCues[n]), h, HOTCUE_COLORS[n], String(n), false); });
@@ -856,6 +857,7 @@ function drawZoom(deck) {
     const inView = (t) => t >= start && t <= start + ZOOM_SECONDS;
     if (inView(a.mixIn)) marker(ctx, X(a.mixIn), h, '#10b981', 'MIX IN');
     if (inView(a.mixOut)) marker(ctx, X(a.mixOut), h, '#f97316', 'MIX OUT');
+    if (resolvedPace(deck) === 'fast') { const f = outPoint(deck); if (inView(f) && Math.abs(f - a.mixOut) > 1) marker(ctx, X(f), h, '#facc15', 'MIX OUT RÁPIDO'); }
     if (inView(a.introEnd) && a.introEnd - a.mixIn > a.beatSec * 8) marker(ctx, X(a.introEnd), h, '#8b5cf6', 'DROP');
     if (inView(deck.cue)) marker(ctx, X(deck.cue), h, '#f59e0b', 'CUE', false);
     [1, 2, 3].forEach(n => { if (deck.hotCues[n] !== null && inView(deck.hotCues[n])) marker(ctx, X(deck.hotCues[n]), h, HOTCUE_COLORS[n], String(n), false); });
@@ -909,6 +911,43 @@ function liveAndNext() {
 
 function barsToSec(deck, bars) { return bars * 4 * deck.beatSec; }
 
+/* ---------- mixing pace: fast (reggaeton, latin, hip-hop) vs long (house, techno) ---------- */
+let mixPaceSetting = 'auto';
+function resolvedPace(deck) {
+    if (mixPaceSetting !== 'auto') return mixPaceSetting;
+    return deck.effectiveBpm < 112 ? 'fast' : 'long';
+}
+
+// Fast pace: a phrase boundary after ~1 minute where the energy drops (end of a chorus)
+function fastOutPoint(a) {
+    if (a.fastOut !== undefined) return a.fastOut;
+    const bar = 4 * a.beatSec, phrase = 8 * bar;
+    const start = Math.max(a.introEnd + 16 * bar, a.mixIn + 55);
+    const end = Math.max(start, Math.min(a.mixOut - 8 * bar, a.mixIn + 110));
+    let best = a.mixOut, bestScore = -Infinity;
+    const avg = (i0, i1) => { let s = 0, n = 0; for (let i = Math.max(0, i0); i < Math.min(a.bars.length, i1); i++) { s += a.bars[i]; n++; } return n ? s / n : 0; };
+    for (let t = a.downbeat + Math.ceil((start - a.downbeat) / phrase - 1e-6) * phrase; t <= end + 0.01; t += phrase) {
+        const i = Math.round((t - a.downbeat) / bar);
+        const score = (avg(i - 4, i) - avg(i, i + 4)) - (t - start) / 400;
+        if (score > bestScore) { bestScore = score; best = t; }
+    }
+    a.fastOut = best;
+    return best;
+}
+
+// Where the playing deck should be mixed out, given the pace and where it is now
+function outPoint(deck) {
+    const a = deck.analysis;
+    if (resolvedPace(deck) === 'long') return a.mixOut;
+    const fast = fastOutPoint(a);
+    const pos = deck.getCurrentTime();
+    if (pos < fast - 2 * 4 * a.beatSec) return fast;
+    // Missed it: next phrase start (at least 2 bars away), never after the normal outro
+    const phrase = 32 * a.beatSec;
+    const next = a.downbeat + Math.ceil((pos + 8 * a.beatSec - a.downbeat) / phrase) * phrase;
+    return Math.min(next, a.mixOut);
+}
+
 function keyInfo(live, next, nextRate) {
     const liveKey = live.analysis.key && Analysis.shiftCamelot(live.analysis.key.camelot, live.pitch);
     const nextKey = next.analysis.key && Analysis.shiftCamelot(next.analysis.key.camelot, nextRate);
@@ -952,9 +991,11 @@ function planTransition(live, next, now = false) {
         reason = 'estilo elegido por ti';
     }
 
+    const pace = resolvedPace(live);
     let bars = style === 'echo' ? 2 : recommendedBars(live, next);
+    if (pace === 'fast' && mixBarsSetting === 'auto') bars = Math.min(bars, 8);
     if (style === 'filter' && mixBarsSetting === 'auto') bars = Math.min(bars, compat === 0 ? 8 : 16);
-    let target = la.mixOut;
+    let target = outPoint(live);
     if (now || pos > target - 1.5 * live.playbackRate) target = live.nextBarAfter(pos + 1.2 * live.playbackRate);
     while (bars > 2 && target + (bars + 0.5) * barOut > live.duration) bars /= 2;
     bars = Math.max(2, Math.round(bars));
@@ -1010,7 +1051,7 @@ function planTransition(live, next, now = false) {
     step(bars + 0.5, `Listo: ${LA} se detiene y sus perillas vuelven a 0`, [{ type: 'end' }]);
 
     return {
-        style, styleLabel: MIX_STYLES[style], reason, bars, target, inStart, useDrop, dropAtEnd,
+        style, styleLabel: MIX_STYLES[style], reason, bars, target, inStart, useDrop, dropAtEnd, pace,
         dropBar: useDrop ? 0 : Math.round((na.introEnd - inStart) / barIn),
         synced: !!r, rate: r ? r.rate : null, factor: r ? r.factor : 1, steps, xIn, xOut,
     };
@@ -1244,9 +1285,10 @@ function deckCard(deck, role) {
     const key = a.key ? Analysis.shiftCamelot(a.key.camelot, deck.pitch) : '--';
     let line;
     if (role === 'SONANDO') {
-        const toOut = a.mixOut - pos;
+        const out = outPoint(deck);
+        const toOut = out - pos;
         line = toOut > 0
-            ? `Salida recomendada <b class="text-orange-400">${formatTime(a.mixOut, false)}</b> · en ${formatTime(toOut / deck.playbackRate, false)} (${Math.ceil(toOut / (4 * deck.beatSec))} comp.)`
+            ? `Salida recomendada <b class="text-orange-400">${formatTime(out, false)}</b> · en ${formatTime(toOut / deck.playbackRate, false)} (${Math.ceil(toOut / (4 * deck.beatSec))} comp.)`
             : `<b class="text-orange-400">En la zona de salida</b> · quedan ${formatTime((deck.duration - pos) / deck.playbackRate, false)}`;
     } else {
         const introBars = Math.round((a.introEnd - a.mixIn) / (4 * deck.beatSec));
@@ -1305,10 +1347,12 @@ function renderPlan(plan, m, live, next) {
 
     return `
         <div class="flex flex-wrap justify-between items-center gap-2 mb-1">
-            <span class="font-bold text-emerald-300 text-xs"><i class="fa-solid fa-route mr-1"></i>PLAN: ${plan.styleLabel} · ${plan.bars} compases${m ? (m.mode === 'guide' ? ' · GUIADO' : ' · AUTO') : ''}</span>
+            <span class="font-bold text-emerald-300 text-xs"><i class="fa-solid fa-route mr-1"></i>PLAN: ${plan.styleLabel} · ${plan.bars} compases · ritmo ${plan.pace === 'fast' ? 'RÁPIDO' : 'LARGO'}${m ? (m.mode === 'guide' ? ' · GUIADO' : ' · AUTO') : ''}</span>
             <span class="font-digits text-[10px] text-gray-300">${status}</span>
         </div>
-        <div class="text-[11px] text-gray-400 mb-1">Por qué: ${plan.reason}.</div>
+        <div class="text-[11px] text-gray-400 mb-1">Por qué: ${plan.reason}. ${plan.pace === 'fast'
+            ? 'Ritmo rápido (reggaetón/latino): se mezcla temprano, al terminar un coro, para que la pista no se haga larga.'
+            : 'Ritmo largo (house/techno): se mezcla en el outro, que está hecho para eso.'}</div>
         <div class="text-[11px] text-gray-200 mb-2">
             <i class="fa-solid fa-play text-emerald-400 mr-1"></i>Empieza cuando el <b>${live.id}</b> llegue a <b class="text-orange-400">${formatTime(plan.target, false)}</b>
             · el <b>${next.id}</b> arranca desde <b class="text-emerald-400">${formatTime(plan.inStart, false)}</b>${plan.useDrop ? ' (directo en su drop)' : plan.dropAtEnd ? ` <span class="text-violet-300">(así su DROP cae justo al terminar la mezcla, en el compás ${plan.dropBar})</span>` : ''}
@@ -1897,6 +1941,12 @@ function setupGlobal() {
     // Assistant
     $('automix-btn').addEventListener('click', () => startAutoMix(false));
     $('guide-btn').addEventListener('click', () => startAutoMix(false, 'guide'));
+    document.querySelectorAll('[data-mixpace]').forEach(btn => btn.addEventListener('click', () => {
+        if (autoMix) { toast('Cancela la mezcla en curso para cambiar el ritmo', 'warn'); return; }
+        mixPaceSetting = btn.dataset.mixpace;
+        document.querySelectorAll('[data-mixpace]').forEach(b => b.classList.toggle('active', b === btn));
+        updateAssistant();
+    }));
     document.querySelectorAll('[data-mixstyle]').forEach(btn => btn.addEventListener('click', () => {
         if (autoMix) { toast('Cancela la mezcla en curso para cambiar el estilo', 'warn'); return; }
         mixStyleSetting = btn.dataset.mixstyle;
@@ -1995,7 +2045,7 @@ function frame(nowMs) {
             const bar = Math.floor(beatIdx / 4) + 1;
             const beat = ((beatIdx % 4) + 4) % 4 + 1;
             $(`deck-${k}-jog-beat`).innerText = pos < a.downbeat ? '-.-' : `${bar}.${beat}`;
-            const toOut = Math.ceil((a.mixOut - pos) / (4 * a.beatSec));
+            const toOut = Math.ceil((outPoint(deck) - pos) / (4 * a.beatSec));
             const leds = [1, 2, 3, 4].map(i => `<span style="color:${i === beat && deck.isPlaying ? (i === 1 ? '#ef4444' : '#e5e7eb') : '#374151'}">■</span>`).join('');
             $(`deck-${k}-phrase`).innerHTML = `${leds} <span class="ml-1">${toOut > 0 ? `OUT en ${toOut} comp.` : pos < a.mixOut + barsToSec(deck, a.mixBars) ? '<span class="text-orange-400">ZONA DE SALIDA</span>' : ''}</span>`;
         }

@@ -54,7 +54,7 @@ const Profe = (() => {
         return {
             pos, bar, section, breakdown,
             nextDrop, barsToDrop: nextDrop ? (nextDrop - pos) / bar : Infinity,
-            barsToOut: (a.mixOut - pos) / bar,
+            barsToOut: (outPoint(deck) - pos) / bar,
             phraseLeft,                                   // bars to the end of the 8-bar phrase
             phraseEnd: pos + phraseLeft * bar,
         };
@@ -261,7 +261,7 @@ const Profe = (() => {
         // Mix timing
         if (!autoMix && next.analysis && ctx.barsToOut <= 8 && ctx.barsToOut > -4) {
             add({ id: 'mix-now', p: 90, icon: 'fa-shuffle', title: '¡Momento de mezclar!',
-                text: `El Deck ${L} está llegando a su salida. Presiona GUIADO (T) y yo te voy diciendo qué mover, o AUTO MIX (Enter) para verlo hecho.`,
+                text: `El Deck ${L} está llegando a su salida${resolvedPace(live) === 'fast' ? ' (ritmo rápido: termina un coro, la gente ya escuchó lo mejor)' : ''}. Presiona GUIADO (T) y yo te voy diciendo qué mover, o AUTO MIX (Enter) para verlo hecho.`,
                 when: () => `salida en ${barsText(Math.max(0, context(live).barsToOut))}`,
                 actions: [
                     { label: 'Mezcla GUIADA', icon: 'fa-graduation-cap', kind: 'show', run: () => startAutoMix(false, 'guide') },

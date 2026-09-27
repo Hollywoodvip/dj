@@ -143,6 +143,20 @@
         }
         .knob-value.show { opacity: 1; }
 
+        /* Laptop screens (e.g. MacBook Air): tighter decks so everything fits */
+        @media (max-height: 1000px) {
+            .jog-wheel { width: 8.5rem !important; height: 8.5rem !important; border-width: 6px; }
+            canvas[id$="-zoom"] { height: 3rem !important; }
+            canvas[id$="-overview"] { height: 1.75rem !important; }
+            input.vertical-pitch.h-32 { height: 6.5rem !important; }
+            input.vertical-pitch.h-28, canvas[id^="vu-meter"] { height: 5.5rem !important; }
+            .knob-container { width: 34px; height: 34px; }
+            .knob-dial { width: 30px; height: 30px; }
+            #deck-a .btn-dj.py-3, #deck-b .btn-dj.py-3 { padding-top: 0.4rem; padding-bottom: 0.4rem; }
+            #deck-a, #deck-b, #mixer { gap: 0.35rem; }
+            #sampler-pads .pad { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+        }
+
         .modal-blur { backdrop-filter: blur(8px); background-color: rgba(5, 6, 9, 0.85); }
 
         @keyframes pulseGlow { 0%, 100% { opacity: 0.75; } 50% { opacity: 1; } }
@@ -220,7 +234,7 @@
     </main>
 
     <!-- DJ PROFE -->
-    <section id="profe" class="dj-panel rounded-lg p-3 mt-3 border-l-4 border-amber-400 flex items-start gap-3">
+    <section id="profe" class="dj-panel rounded-lg p-3 mt-3 border-l-4 border-amber-400 flex items-start gap-3 sticky bottom-2 z-40" style="box-shadow:0 -8px 30px rgba(0,0,0,0.85)">
         <div class="w-10 h-10 rounded-full bg-amber-950 border border-amber-500/50 flex items-center justify-center shrink-0">
             <i id="profe-icon" class="fa-solid fa-user-graduate text-amber-300 text-xl"></i>
         </div>
@@ -249,7 +263,11 @@
                     <span class="text-[10px] text-gray-500">análisis de BPM, tonalidad, intro/outro y frases de 8 compases</span>
                 </div>
                 <div class="flex flex-wrap items-center gap-1 text-xs">
-                    <span class="text-[10px] text-gray-400 mr-1">ESTILO</span>
+                    <span class="text-[10px] text-gray-400 mr-1" title="Rápido = reggaetón/latino (mezclar temprano). Largo = house/techno (mezclar en el outro)">RITMO</span>
+                    <button data-mixpace="auto" class="btn-dj btn-mode active px-2 py-1 rounded font-bold" title="Según el BPM: menos de 112 = rápido">AUTO</button>
+                    <button data-mixpace="fast" class="btn-dj btn-mode px-2 py-1 rounded font-bold" title="Reggaetón, latino, hip-hop: mezclar después del coro (~1 min)">RÁPIDO</button>
+                    <button data-mixpace="long" class="btn-dj btn-mode px-2 py-1 rounded font-bold" title="House, techno: mezclar en el outro">LARGO</button>
+                    <span class="text-[10px] text-gray-400 ml-2 mr-1">ESTILO</span>
                     <button data-mixstyle="auto" class="btn-dj btn-mode active px-2 py-1 rounded font-bold">AUTO</button>
                     <button data-mixstyle="blend" class="btn-dj btn-mode px-2 py-1 rounded font-bold" title="Fundir con EQ y cambio de bajos">BLEND</button>
                     <button data-mixstyle="filter" class="btn-dj btn-mode px-2 py-1 rounded font-bold" title="El que sale se va con el filtro">FILTER</button>
