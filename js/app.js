@@ -341,7 +341,7 @@ function toast(message, type = 'info') {
     el.className = `toast dj-panel rounded-lg px-3 py-2 text-xs border ${colors[type] || colors.info} max-w-sm`;
     el.textContent = message;
     $('toasts').appendChild(el);
-    setTimeout(() => el.remove(), 3500);
+    setTimeout(() => el.remove(), Math.max(3500, message.length * 60));
 }
 
 /* ==========================================================================
@@ -962,7 +962,21 @@ function planTransition(live, next, now = false) {
     // Incoming start point: the intro for blends, straight into the drop for an echo out
     const introBars = (na.introEnd - na.mixIn) / (4 * next.beatSec);
     const useDrop = style === 'echo' && introBars >= 4 && na.introEnd < next.duration - 30;
-    const inStart = useDrop ? na.introEnd : na.mixIn;
+    // Blends: start the incoming track exactly `bars` bars before its drop, so the
+    // drop lands right when the mix ends (that's what makes a transition hit)
+    const barIn = 4 * next.beatSec;
+    let inStart = useDrop ? na.introEnd : na.mixIn;
+    let dropAtEnd = false;
+    if (!useDrop && introBars >= 2) {
+        const ideal = na.introEnd - bars * barIn;
+        if (ideal >= na.mixIn - 0.05) {
+            inStart = Math.max(0, na.downbeat + Math.round((ideal - na.downbeat) / barIn) * barIn);
+            dropAtEnd = true;
+        } else {
+            // Intro shorter than the mix: the drop comes in partway through
+            dropAtEnd = introBars >= bars / 2;
+        }
+    }
 
     const A = live.key, B = next.key, LA = live.id, LB = next.id;
     const xOut = live === decks.a ? -1 : 1;
@@ -996,7 +1010,8 @@ function planTransition(live, next, now = false) {
     step(bars + 0.5, `Listo: ${LA} se detiene y sus perillas vuelven a 0`, [{ type: 'end' }]);
 
     return {
-        style, styleLabel: MIX_STYLES[style], reason, bars, target, inStart, useDrop,
+        style, styleLabel: MIX_STYLES[style], reason, bars, target, inStart, useDrop, dropAtEnd,
+        dropBar: useDrop ? 0 : Math.round((na.introEnd - inStart) / barIn),
         synced: !!r, rate: r ? r.rate : null, factor: r ? r.factor : 1, steps, xIn, xOut,
     };
 }
@@ -1160,7 +1175,8 @@ function litTargetFor(el) {
     return { id: input.id, value: +host.dataset.targetValue };
 }
 
-function finishAutoMix() {
+let lastMixDone = null;
+function finishAutoMix(early = false) {
     const m = autoMix;
     if (!m) return;
     const { out, in: inc, plan } = m;
@@ -1174,8 +1190,9 @@ function finishAutoMix() {
     if (out.syncOn) out.syncOn = false;
     refreshDeckButtons(out);
     autoMix = null;
+    lastMixDone = { out, in: inc, at: performance.now(), early };
     setCoachTargets([]);
-    toast(`Mezcla completa: ahora suena el Deck ${inc.id}`, 'ok');
+    toast(`${early ? '¡Te adelantaste y está bien!' : 'Mezcla completa.'} Así queda todo: Deck ${out.id} en pausa con sus perillas en 0, crossfader en ${inc.id}. Ahora suena el ${inc.id}: carga el próximo tema en el ${out.id}.`, 'ok');
     renderLibrary();
     updateAssistant();
 }
@@ -1200,6 +1217,12 @@ function tickAutoMix() {
             m.phase = 'mixing';
             renderLibrary();
         }
+    }
+    // You got there before the plan: crossfader already on the new deck, or the old track ended
+    if (m.started) {
+        const xfDone = Math.abs(+$('crossfader').value - plan.xIn) < 0.1 && mixBarPosition(m) > 0.5;
+        const outEnded = plan.style !== 'echo' && !out.isPlaying;
+        if ((m.mode === 'guide' && xfDone) || outEnded) { finishAutoMix(true); return; }
     }
     const barPos = mixBarPosition(m);
     m.progress = clamp(barPos / plan.bars, 0, 1);
@@ -1288,7 +1311,7 @@ function renderPlan(plan, m, live, next) {
         <div class="text-[11px] text-gray-400 mb-1">Por qué: ${plan.reason}.</div>
         <div class="text-[11px] text-gray-200 mb-2">
             <i class="fa-solid fa-play text-emerald-400 mr-1"></i>Empieza cuando el <b>${live.id}</b> llegue a <b class="text-orange-400">${formatTime(plan.target, false)}</b>
-            · el <b>${next.id}</b> arranca desde <b class="text-emerald-400">${formatTime(plan.inStart, false)}</b>${plan.useDrop ? ' (su drop)' : ' (su IN)'}
+            · el <b>${next.id}</b> arranca desde <b class="text-emerald-400">${formatTime(plan.inStart, false)}</b>${plan.useDrop ? ' (directo en su drop)' : plan.dropAtEnd ? ` <span class="text-violet-300">(así su DROP cae justo al terminar la mezcla, en el compás ${plan.dropBar})</span>` : ''}
             ${pct !== null ? `· tempo del ${next.id} ${pct >= 0 ? '+' : ''}${pct}%` : '· sin sync'}
         </div>
         ${current.length ? `<div class="mb-2 p-2 rounded border border-amber-500/50 bg-amber-950/40 text-amber-200 text-xs font-bold animate-pulse"><i class="fa-solid fa-hand-point-right mr-1"></i>AHORA: ${current[0].text} <span class="font-normal text-amber-300/80">(haz clic en lo que brilla en verde y se ajusta solo, o presiona ESPACIO para todo)</span></div>` : ''}

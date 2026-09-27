@@ -236,6 +236,14 @@ const Profe = (() => {
             add({ id: 'auto-running', p: 60, icon: 'fa-shuffle', title: 'Auto mix en curso', text: 'Mira el PLAN abajo: así se ve una mezcla profesional paso a paso.' });
         }
 
+        // Right after a mix: how everything should be left
+        if (!autoMix && lastMixDone && performance.now() - lastMixDone.at < 15000) {
+            const { out, in: inc } = lastMixDone;
+            add({ id: `after-mix-${Math.round(lastMixDone.at)}`, p: 96, icon: 'fa-flag-checkered', title: lastMixDone.early ? '¡Pasaste al otro deck!' : '¡Mezcla lista!',
+                text: `Así se deja todo: Deck ${out.id} en pausa, sus perillas en 0 (ya lo hice), crossfader del lado ${inc.id}, y las perillas del ${inc.id} en 0. Ahora el que suena es el ${inc.id}: carga el próximo tema en el ${out.id}.`,
+                actions: [{ label: 'Poner todo en 0', icon: 'fa-rotate-left', kind: 'auto', run: () => { resetChannel(out); resetChannel(inc); } }] });
+        }
+
         if (!live.isPlaying) {
             add({ id: 'play', p: 97, icon: 'fa-play', title: 'Dale play', text: `Dale PLAY al Deck ${live.id} (${live === decks.a ? 'tecla S' : 'tecla L'}).` });
             return tips;
