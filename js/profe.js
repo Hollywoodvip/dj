@@ -246,7 +246,8 @@ const Profe = (() => {
         if (autoMix && autoMix.mode === 'guide') {
             const pending = autoMix.plan.steps.filter(s => s.fired && s.pending && s.pending.length).slice(-1)[0];
             const nextStep = autoMix.plan.steps.find(s => !s.fired);
-            if (pending) add({ id: 'guide-now', p: 99, icon: 'fa-hand-point-right', title: 'AHORA', text: pending.text + '. Mueve lo que brilla en verde.' });
+            if (pending) add({ id: 'guide-now', p: 99, icon: 'fa-hand-point-right', title: autoMix.waiting ? 'Te espero' : 'AHORA',
+                text: pending.text + '. Haz clic en lo que brilla en verde (o Espacio).' + (autoMix.waiting ? ' El plan no avanza hasta que lo hagas.' : '') });
             else if (nextStep) add({ id: 'guide-next', p: 98, icon: 'fa-hourglass-half', title: 'Lo que viene', text: nextStep.text + '.',
                 when: () => { const b = nextStep.at - mixBarPosition(autoMix); return b > 0 ? `en ${barsText(b)}` : ''; } });
         } else if (autoMix) {
@@ -256,8 +257,8 @@ const Profe = (() => {
         // Right after a mix: how everything should be left
         if (!autoMix && lastMixDone && performance.now() - lastMixDone.at < 15000) {
             const { out, in: inc } = lastMixDone;
-            add({ id: `after-mix-${Math.round(lastMixDone.at)}`, p: 96, icon: 'fa-flag-checkered', title: lastMixDone.early ? '¡Pasaste al otro deck!' : '¡Mezcla lista!',
-                text: `Así se deja todo: Deck ${out.id} en pausa, sus perillas en 0 (ya lo hice), crossfader del lado ${inc.id}, y las perillas del ${inc.id} en 0. Ahora el que suena es el ${inc.id}: carga el próximo tema en el ${out.id}.`,
+            add({ id: `after-mix-${Math.round(lastMixDone.at)}`, p: 96, icon: 'fa-flag-checkered', title: '¡Mezcla lista!',
+                text: `Así queda: Deck ${out.id} en pausa con sus perillas en 0, crossfader del lado ${inc.id}. Ahora suena el ${inc.id} (su pitch vuelve a 0% de a poco). Siguiente paso: carga otro tema en el ${out.id}.`,
                 actions: [{ label: 'Poner todo en 0', icon: 'fa-rotate-left', kind: 'auto', run: () => { resetChannel(out); resetChannel(inc); } }] });
         }
 
@@ -459,7 +460,7 @@ const Profe = (() => {
             const styles = {
                 ok: 'border-emerald-700/60 text-emerald-300 bg-emerald-950/40',
                 warn: 'border-amber-500/70 text-amber-200 bg-amber-950/50 hover:bg-amber-900/60',
-                bad: 'border-rose-500/80 text-rose-200 bg-rose-950/60 hover:bg-rose-900/60 animate-pulse',
+                bad: 'border-rose-500/80 text-rose-200 bg-rose-950/60 hover:bg-rose-900/60',
             };
             const icons = { ok: 'fa-circle-check', warn: 'fa-triangle-exclamation', bad: 'fa-circle-xmark' };
             el.className = `px-2 py-0.5 rounded-full border text-[11px] font-bold flex items-center gap-1 ${styles[c.level]}`;
@@ -494,7 +495,8 @@ const Profe = (() => {
         let tip = tips[0];
         // Keep the current tip a few seconds unless something more important shows up
         const keep = current && tips.find(t => t.id === current.id);
-        if (keep && tip.id !== current.id && tip.p < current.p + 15 && performance.now() - shownAt < 5000) tip = keep;
+        // (urgent tips, like the guided mix steps, always show right away)
+        if (keep && tip.id !== current.id && tip.p < 95 && tip.p < current.p + 25 && performance.now() - shownAt < 9000) tip = keep;
         if (!tip) return;
         const changed = force || !current || tip.id !== current.id;
         current = tip;
@@ -605,7 +607,7 @@ const Profe = (() => {
     return {
         init, tick, tickTricks, render,
         targets: () => targets, clearTargets: () => { targets = []; },
-        mode: () => (enabled ? mode : 'tips'),
+        mode: () => (enabled ? mode : 'off'),
         // A mix you cancelled is not re-armed for the same pair of tracks
         onCancel: () => { if (armedKey) refused.add(armedKey); armedKey = null; },
     };

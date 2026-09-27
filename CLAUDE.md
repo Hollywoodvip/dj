@@ -44,3 +44,8 @@ plays mostly reggaeton / latin, speaks Spanish, and uses a MacBook Air touchpad
   trans only in the build-up into a drop.
 - **Beginner UX:** one click on a highlighted control glides it to its target,
   Space applies the whole step; the layout must fit a laptop screen without zooming.
+- **Guided mode waits for the user:** the plan's clock stops while something is
+  lit up (only the incoming track's start is automatic, it must be on the beat).
+  Never stop a deck by surprise in guided mode: the user pauses the old deck
+  (its PLAY button lights up "PAUSA"). Keep animations calm and avoid repeating
+  the same message in a toast and in the profe bar (the user got dizzy).

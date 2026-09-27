@@ -341,7 +341,11 @@ function toast(message, type = 'info') {
     const el = document.createElement('div');
     el.className = `toast dj-panel rounded-lg px-3 py-2 text-xs border ${colors[type] || colors.info} max-w-sm`;
     el.textContent = message;
-    $('toasts').appendChild(el);
+    const box = $('toasts');
+    // Never the same message twice, and at most 2 on screen
+    if ([...box.children].some(c => c.textContent === message)) return;
+    while (box.children.length >= 2) box.firstChild.remove();
+    box.appendChild(el);
     setTimeout(() => el.remove(), Math.max(3500, message.length * 60));
 }
 
@@ -561,7 +565,11 @@ function togglePlay(deck) {
     if (!deck.audioBuffer) return;
     deck.cuePreview = false;
     if (deck.isPlaying) {
-        if (autoMix && autoMix.out === deck) cancelAutoMix();
+        // Pausing the old deck once the new one is in = the mix is done, not cancelled
+        if (autoMix && autoMix.out === deck) {
+            if (autoMix.started) { deck.pause(); finishAutoMix(true); return; }
+            cancelAutoMix();
+        }
         deck.pause();
     } else {
         if (deck.getCurrentTime() >= deck.duration - 0.05) deck.pauseOffset = deck.cue;
@@ -1087,7 +1095,8 @@ function planTransition(live, next, now = false) {
             [{ type: 'stopOut' }, { type: 'startIn' }, set('crossfader', 0, 0, true)]);
         step(1, `Crossfader entero a ${LB}`, [set('crossfader', xIn, 1)]);
     }
-    step(bars + 0.5, `Listo: ${LA} se detiene y sus perillas vuelven a 0`, [{ type: 'end' }]);
+    if (style !== 'echo') step(bars + 0.5, `Pausa el Deck ${LA}: ya no se escucha (el crossfader está en ${LB})`, [{ type: 'pauseOut' }]);
+    step(bars + 0.75, `Listo: las perillas del ${LA} vuelven a 0`, [{ type: 'end' }]);
 
     return {
         style, styleLabel: MIX_STYLES[style], reason, bars, target, inStart, useDrop, dropAtEnd, pace,
@@ -1173,7 +1182,8 @@ function mixBarSeconds(m) { return 4 * m.out.beatSec / m.out.playbackRate; }
 
 // Bars since the transition point (negative while waiting)
 function mixBarPosition(m) {
-    if (m.started) return (audioCtx.currentTime - m.startCtx) / mixBarSeconds(m);
+    // pausedBars: in guided mode the plan's clock stops while it waits for you
+    if (m.started) return (audioCtx.currentTime - m.startCtx) / mixBarSeconds(m) - (m.pausedBars || 0);
     return (m.out.getCurrentTime() - m.target) / (4 * m.out.beatSec);
 }
 
@@ -1194,6 +1204,10 @@ function fireStep(m, step) {
             refreshFxUI(d);
         } else if (a.type === 'stopOut') {
             if (m.out.isPlaying) m.out.pause();
+        } else if (a.type === 'pauseOut') {
+            const out = m.out;
+            if (m.mode === 'auto') { if (out.isPlaying) out.pause(); }
+            else if (out.isPlaying) step.pending.push({ id: `deck-${out.key}-play-btn`, label: 'PAUSA · clic', check: () => !out.isPlaying, run: () => togglePlay(out) });
         } else if (a.type === 'end') {
             finishAutoMix();
         }
@@ -1202,6 +1216,7 @@ function fireStep(m, step) {
 }
 
 function targetReached(t) {
+    if (t.check) return t.check();
     if (t.fx) return t.fx.on;
     const el = $(t.id);
     const tol = (+el.max - +el.min) * 0.1;
@@ -1251,6 +1266,7 @@ let currentTargets = [];
 
 // One click on a lit-up control (or Space for all of them) moves it to its target by itself
 function applyTarget(t) {
+    if (t.run) { t.run(); return; }
     if (t.fx) { if (!t.fx.on) { t.fx.setOn(true); refreshFxUI(t.fx.deck); } return; }
     if (t.value !== undefined) glideControl(t.id, t.value, 350);
 }
@@ -1271,7 +1287,7 @@ function finishAutoMix(early = false) {
     const m = autoMix;
     if (!m) return;
     const { out, in: inc, plan } = m;
-    if (out.isPlaying) out.pause();
+    if (out.isPlaying && m.mode === 'auto') out.pause();
     if (out.fx.on) out.fx.setOn(false);
     ['low', 'mid', 'high'].forEach(b => setControl(`deck-${out.key}-eq-${b}`, 0));
     setControl(`deck-${out.key}-filter`, 0);
@@ -1286,7 +1302,8 @@ function finishAutoMix(early = false) {
     autoMix = null;
     lastMixDone = { out, in: inc, at: performance.now(), early };
     setCoachTargets([]);
-    toast(`${early ? '¡Te adelantaste y está bien!' : 'Mezcla completa.'} Así queda todo: Deck ${out.id} en pausa con sus perillas en 0, crossfader en ${inc.id}. Ahora suena el ${inc.id}: carga el próximo tema en el ${out.id}.`, 'ok');
+    // The DJ PROFE explains how everything is left; without it, a short toast
+    if (typeof Profe === 'undefined' || Profe.mode() === 'off') toast(`Mezcla completa: ahora suena el Deck ${inc.id}`, 'ok');
     renderLibrary();
     updateAssistant();
 }
@@ -1312,12 +1329,33 @@ function tickAutoMix() {
             renderLibrary();
         }
     }
-    // You got there before the plan: crossfader already on the new deck, or the old track ended
-    if (m.started) {
-        const xfDone = Math.abs(+$('crossfader').value - plan.xIn) < 0.1 && mixBarPosition(m) > 0.5;
-        const outEnded = plan.style !== 'echo' && !out.isPlaying;
-        if ((m.mode === 'guide' && xfDone) || outEnded) { finishAutoMix(true); return; }
+    if (m.started && m.mode === 'guide') {
+        const now = audioCtx.currentTime;
+        const dtBars = m.lastCtx ? (now - m.lastCtx) / mixBarSeconds(m) : 0;
+        m.lastCtx = now;
+        const waiting = plan.steps.some(s => s.fired && s.pending && s.pending.length);
+        const nextStep = plan.steps.find(s => !s.fired);
+        const outLeftBars = (out.duration - out.getCurrentTime()) / (4 * out.beatSec);
+        m.waiting = false;
+        if (waiting && outLeftBars <= 4) {
+            // The old track is about to end: no more waiting, do what's left
+            plan.steps.forEach(s => (s.pending || []).forEach(applyTarget));
+        } else if (waiting && nextStep && mixBarPosition(m) >= nextStep.at - 0.02) {
+            m.pausedBars = (m.pausedBars || 0) + dtBars; // the plan waits for you
+            m.waiting = true;
+        }
+        // Crossfader already fully on the new deck: skip straight to pausing the old one
+        const pauseStep = plan.steps.find(s => s.actions.some(a => a.type === 'pauseOut'));
+        if (!m.skipped && pauseStep && !pauseStep.fired && Math.abs(+$('crossfader').value - plan.xIn) < 0.1 && mixBarPosition(m) > 0.5) {
+            m.skipped = true;
+            plan.steps.forEach(s => { if (s.at < pauseStep.at) { s.fired = true; s.pending = []; } });
+            m.pausedBars = (m.pausedBars || 0) - (pauseStep.at - mixBarPosition(m));
+            resetChannel(inc, 400); // the new track plays full (bass, mids, highs)
+            toast(`¡Te adelantaste! Ya suena el ${inc.id}: solo falta pausar el ${out.id}`, 'ok');
+        }
     }
+    // The old track stopped (you paused it or it ended): the mix is done
+    if (m.started && plan.style !== 'echo' && !out.isPlaying) { finishAutoMix(true); return; }
     const barPos = mixBarPosition(m);
     m.progress = clamp(barPos / plan.bars, 0, 1);
     for (const s of plan.steps) {
@@ -1411,7 +1449,7 @@ function renderPlan(plan, m, live, next) {
             · el <b>${next.id}</b> arranca desde <b class="text-emerald-400">${formatTime(plan.inStart, false)}</b>${plan.useDrop ? ' (directo en su drop)' : plan.dropAtEnd ? ` <span class="text-violet-300">(así su DROP cae justo al terminar la mezcla, en el compás ${plan.dropBar})</span>` : ''}
             ${pct !== null ? `· tempo del ${next.id} ${pct >= 0 ? '+' : ''}${pct}%` : '· sin sync'}
         </div>
-        ${current.length ? `<div class="mb-2 p-2 rounded border border-amber-500/50 bg-amber-950/40 text-amber-200 text-xs font-bold animate-pulse"><i class="fa-solid fa-hand-point-right mr-1"></i>AHORA: ${current[0].text} <span class="font-normal text-amber-300/80">(haz clic en lo que brilla en verde y se ajusta solo, o presiona ESPACIO para todo)</span></div>` : ''}
+        ${current.length ? `<div class="mb-2 p-2 rounded border border-amber-500/50 bg-amber-950/40 text-amber-200 text-xs font-bold"><i class="fa-solid fa-hand-point-right mr-1"></i>AHORA: ${current[0].text} <span class="font-normal text-amber-300/80">(haz clic en lo que brilla en verde y se ajusta solo, o presiona ESPACIO para todo)</span></div>` : ''}
         <div class="relative h-3 bg-gray-900 rounded mb-2 border border-gray-800">
             <div class="absolute top-0 bottom-0 bg-emerald-900/60 rounded" style="left:${zero}%;width:${m ? clamp(barPos / plan.bars, 0, 1) * (100 - zero) : 0}%"></div>
             ${markers}${cursor}
